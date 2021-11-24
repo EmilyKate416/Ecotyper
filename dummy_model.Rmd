@@ -1,6 +1,5 @@
 ---
-title: "xgboost and shapley"
-author: "Felicia Ng"
+title: "xgboost pre shapley"
 date: "1/10/2020"
 output: pdf_document
 ---
