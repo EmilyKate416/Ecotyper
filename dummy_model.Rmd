@@ -1,0 +1,124 @@
+---
+title: "xgboost and shapley"
+author: "Felicia Ng"
+date: "1/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(janitor)
+library(xgboost)
+library(Matrix)
+library(rsample)
+library(SHAPforxgboost)
+library(GGally)
+theme_set(theme_bw())
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Dummy xgboost model
+
+```{r data}
+nsclc2 <- 
+  read_tsv("ts_io_nsclc_clinical_data.tsv") %>% 
+  as_tibble() %>%  
+  clean_names() %>%  
+  filter(exome_profiling=='yes') %>% 
+  select(-exome_profiling) %>%  
+  filter(!is.na(pfs)) %>% 
+  mutate(tmb_value=log10(tmb_value),
+         y_lower_bound=.$pfs,
+         y_upper_bound=case_when(censoring_status_pfs=="DiseaseFree" ~ +Inf, 
+                                 censoring_status_pfs=="Recurred/Progressed" ~ .$pfs)) %>%
+  select(patient_id, cd8_ct, density_foxp3gitr_tc, tmb_value, pfs, y_lower_bound, y_upper_bound) %>% 
+  column_to_rownames("patient_id")
+
+# Correlogram
+ggpairs(data=nsclc2 %>% select(-pfs, -y_lower_bound, -y_upper_bound), title="NSCLC")
+
+set.seed(123)
+nsclc2_split <- initial_split(nsclc2, strata=NULL) # strata must be set to NULL if there are missing values
+nsclc2_train <- training(nsclc2_split) 
+nsclc2_test <- testing(nsclc2_split)
+```
+
+```{r xgbdmatrix}
+# sparse.model.matrix -> xgb.DMatrix
+options(na.action='na.pass') # run 'options()' to reset default
+sparse_train <- sparse.model.matrix(pfs ~ .-1, data=nsclc2_train %>% select(-y_lower_bound, -y_upper_bound))
+sparse_test <- sparse.model.matrix(pfs ~.-1, data=nsclc2_test %>% select(-y_lower_bound, -y_upper_bound))
+
+label_train<-nsclc2_train$pfs
+label_test<- nsclc2_test$pfs
+
+train_matrix <- xgb.DMatrix(data = sparse_train, label=label_train)
+y_lower_bound <- nsclc2_train$y_lower_bound
+y_upper_bound <- nsclc2_train$y_upper_bound
+setinfo(train_matrix, 'label_lower_bound', y_lower_bound)
+setinfo(train_matrix, 'label_upper_bound', y_upper_bound)
+#getinfo(train_matrix, 'label_lower_bound')
+
+test_matrix <- xgb.DMatrix(data = sparse_test, label=label_test)
+y_lower_bound <- nsclc2_test$y_lower_bound
+y_upper_bound <- nsclc2_test$y_upper_bound
+setinfo(test_matrix, 'label_lower_bound', y_lower_bound)
+setinfo(test_matrix, 'label_upper_bound', y_upper_bound)
+
+# Save xgb.DMatrix objects
+xgb.DMatrix.save(train_matrix, 'xgb_dmatrix_train.data')
+xgb.DMatrix.save(test_matrix, 'xgb_dmatrix_test.data')
+```
+
+Clear workspace and reload xgb.DMatrix before continuing survival analysis.
+
+```{r cv}
+# Cross-validation (use only training data)
+train_matrix <- xgb.DMatrix('xgb_dmatrix_train.data')
+params <- list(booster = "gbtree",
+               objective='survival:aft',
+               eval_metric='aft-nloglik',
+               aft_loss_distribution='normal',
+               aft_loss_distribution_scale=1.20,
+               tree_method='hist',
+               eta=0.05, 
+               gamma=0, 
+               max_depth=6,
+               min_child_weight=1, 
+               subsample=1, 
+               colsample_bytree=1)
+
+xgbcv <- xgb.cv(params = params, data = train_matrix, nrounds = 200, nfold = 5, showsd = T, stratified = T, early_stopping_rounds = 10, maximize = F)
+eval_log <- 
+  data.frame(xgbcv$evaluation_log[,c("iter", "train_aft_nloglik_mean", "test_aft_nloglik_mean")]) %>% 
+  as_tibble() %>% 
+  gather(train_test, aft_nloglik, -iter)
+ggplot(eval_log, aes(x=iter, y=aft_nloglik, colour=train_test)) + 
+  geom_line()
+
+# More hyperparam tuning steps....
+
+# Finally, run xgboost with optimal hyperparam
+model <- xgboost(params = params, data = train_matrix, nrounds = 59,  early_stopping_rounds = 10, maximize = F)
+
+# Can't use watchlist?
+#model <- xgboost(params = params, data = train_matrix, eval.metric='rmse', nrounds = 50, watchlist = list(val=test_matrix, train=train_matrix), early.stop.round = 10, maximize = F)
+```
+
+```{r shapley}
+shap_values <- shap.values(xgb_model=model, X_train=sparse_train)
+shap_values$mean_shap_score
+shap_long <- shap.prep(xgb_model=model, X_train=as.matrix(sparse_train))
+shap.plot.summary(shap_long)
+
+# Alternative
+shap.plot.summary.wrap1(model, X = as.matrix(sparse_train))
+```
+
+```{r test}
+# Do not touch left-out test dataset until last step
+# Model prediction
+xgbpred <- predict(xgb1, nsclc_test)
+xgbpred <- ifelse(xgbpred > 0.5,1,0)
+```
+
