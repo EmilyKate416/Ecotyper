@@ -1,0 +1,118 @@
+---
+title: "Setting up github account"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+Windows has 4 possible shells you can end up in and you generally want to be in Git Bash, so we want R studio to use Git Bash as the shell for Windows. Git Bash is a bash shell that ships with Git for Windows. Therefore, you will not have Git Bash on your system until you install Git for Windows.(Alternative windows = command prompt (cmd.exe), PowerShell (ComSpec), or Bash via Windows Services for Linux/Bash via WSL = Bash on Ubuntu).
+
+Git Bash is always the Windows shell we are targeting.
+
+RStudio should automatically detect the presence of Git Bash. You can inspect and influence this directly via Tools > Global Options > Terminal. Unless you have good reason to do otherwise, you want to see “Git Bash” in the “New terminals open with …” dropdown menu.
+
+Troubleshooting tips:
+
+Restart RStudio. You need to restart all instances of RStudio after installing Git for Windows (+ Git Bash), in order for RStudio to auto-detect Git Bash.
+Update RStudio. The shell handling in RStudio has improved dramatically over time, so older versions might not behave as described here.
+
+#Sometimes you need to run Git Bash as administrator, e.g. to run with higher privileges. Easiest way: click the “Git” menu in the Windows menu and right-click on “Git Bash”. This reveals a submenu. Select “more” and then “Run as administrator”.
+
+## R Markdown - personal access tokens for HTTPS
+When we interact with a remote Git server, such as GitHub, have to include credentials in the request specific to your account.
+
+Git can communicate with a remote server using, HTTPS or SSH. HTTPS requires personal access token (PAT).
+Getting and storing PAT.
+
+```{r, echo=FALSE}
+#need package usethis installed to run command:
+usethis::create_github_token() # this will allowyou to generate a PAT via github
+#click generate token on the github webpage that comes up
+```
+
+
+```{r}
+#the following command will provide a prompt to allow you to paste and store the PAT credentials generated for you
+gitcreds::gitcreds_set() #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
+```
+#now to connect to GitHub
+Go to https://github.com and make sure you are logged in.
+
+Near “Repositories”, click the big green “New” button. Or, if you are on your own profile page, click on “Repositories”, then click the big green “New” button.
+
+How to fill this in:
+
+Repository template: No template.
+Repository name: myrepo or whatever you wish (we’ll delete this soon).
+Description: “Repository for testing my Git/GitHub setup” or similar. It’s nice to have something here, so you’ll see it appear in the README.
+Public.
+Initialize this repository with: Add a README file.
+Click the big green button that says “Create repository”.
+
+Now click the big green button that says “<> Code”.
+
+Copy a clone URL to your clipboard. If you’re taking our default advice, copy the HTTPS URL. But if you’re opting for SSH, then make sure to copy the SSH URL.
+
+Clone a repo:
+Go to the shell, notice what directory you’re in. pwd displays the working directory. cd is the command to change directory. Personally, I would do this sort of thing in ~/tmp.
+
+```{r}
+#in shell type
+# ~/AppData/Local/Temp
+```
+ 
+Clone myrepo from GitHub to your computer. Use the URL we just copied from GitHub. This URL should have your GitHub username and the name of your practice repo. If your shell (Appendix A) cooperates, you should be able to paste the whole https://.... bit that we copied above. But some shells are not (immediately) clipboard aware. In that sad case, you must type it. Accurately.
+
+```{r}
+#in shell type 
+#git clone https://github.com/EmilyKate416/myrepo.git
+```
+
+```{r}
+#Make this new repo your working directory, list its files, display the README, and get some information on its connection to GitHub:
+
+#cd myrepo
+#ls
+#head README.md
+#git remote show origin
+```
+
+Make a local change, commit, and push
+Add a line to README and verify that Git notices the change:
+```{r}
+
+echo "A line I wrote on my local computer  " >> README.md
+git status
+```
+Stage (“add”) and commit this change and push to your remote repo on GitHub.
+
+If you’re a new GitHub user and using HTTPS, you might be challenged for your username and password. Even though GitHub no longer allows username/password authentication, many general Git tools still frame the authentication task with this vocabulary. By all means, provide your GitHub username when prompted. However, the most critical piece is to provide your PAT as the password. Do not enter your web password. Enter your PAT. If you already stored your PAT with gitcreds::gitcreds_set(), it should be discovered automatically and you will not see a credential challenge.
+
+```{r}
+git add README.md
+git commit -m "A commit from my local computer"
+git push
+```
+
+Go back to the browser. I assume we’re still viewing your new GitHub repo.
+
+Refresh.
+
+You should see the new “A line I wrote on my local computer” in the README.
+
+If you click on “commits,” you should see one with the message “A commit from my local computer.”
+
+If you have made it this far, you and your test repo are ready to graduate to using Git and GitHub with RStudio (chapter 12).
+
+Clone the test GitHub repository to your computer via RStudio
+In RStudio, start a new Project:
+
+File > New Project > Version Control > Git. In “Repository URL”, paste the URL of your new GitHub repository. It will be something like this https://github.com/jennybc/myrepo.git.
+Do you NOT see an option to get the Project from Version Control? Restart RStudio and try again. Still no luck? Go to chapter 13 for tips on how to help RStudio find Git.
+Accept the default project directory name, e.g. myrepo, which coincides with the GitHub repo name.
+Take charge of – or at least notice! – where the Project will be saved locally. A common rookie mistake is to have no idea where you are saving files or what your working directory is. Pay attention. Be intentional. Personally, I would do this in ~/tmp.
+I suggest you check “Open in new session”, as that’s what you’ll usually do in real life.
+Click “Create Project”.
+You should find yourself in a new local RStudio Project that represents your test repo on GitHub. This should download the README.md file from GitHub. Look in RStudio’s file browser pane for the README.md file.
