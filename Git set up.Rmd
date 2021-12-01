@@ -13,10 +13,6 @@ Git Bash is always the Windows shell we are targeting.
 
 RStudio should automatically detect the presence of Git Bash. You can inspect and influence this directly via Tools > Global Options > Terminal. Unless you have good reason to do otherwise, you want to see “Git Bash” in the “New terminals open with …” dropdown menu.
 
-Troubleshooting tips:
-
-Restart RStudio. You need to restart all instances of RStudio after installing Git for Windows (+ Git Bash), in order for RStudio to auto-detect Git Bash.
-Update RStudio. The shell handling in RStudio has improved dramatically over time, so older versions might not behave as described here.
 
 #Sometimes you need to run Git Bash as administrator, e.g. to run with higher privileges. Easiest way: click the “Git” menu in the Windows menu and right-click on “Git Bash”. This reveals a submenu. Select “more” and then “Run as administrator”.
 
@@ -109,10 +105,8 @@ If you have made it this far, you and your test repo are ready to graduate to us
 Clone the test GitHub repository to your computer via RStudio
 In RStudio, start a new Project:
 
-File > New Project > Version Control > Git. In “Repository URL”, paste the URL of your new GitHub repository. It will be something like this https://github.com/jennybc/myrepo.git.
-Do you NOT see an option to get the Project from Version Control? Restart RStudio and try again. Still no luck? Go to chapter 13 for tips on how to help RStudio find Git.
-Accept the default project directory name, e.g. myrepo, which coincides with the GitHub repo name.
-Take charge of – or at least notice! – where the Project will be saved locally. A common rookie mistake is to have no idea where you are saving files or what your working directory is. Pay attention. Be intentional. Personally, I would do this in ~/tmp.
+File > New Project > Version Control > Git. In “Repository URL”, paste the URL of your new GitHub repository. 
+
 I suggest you check “Open in new session”, as that’s what you’ll usually do in real life.
 Click “Create Project”.
 You should find yourself in a new local RStudio Project that represents your test repo on GitHub. This should download the README.md file from GitHub. Look in RStudio’s file browser pane for the README.md file.
