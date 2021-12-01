@@ -1,5 +1,5 @@
 ---
-title: "Setting up github account"
+title: "Setting up github"
 output: html_document
 ---
 
@@ -52,11 +52,11 @@ Now click the big green button that says “<> Code”.
 Copy a clone URL to your clipboard. If you’re taking our default advice, copy the HTTPS URL. But if you’re opting for SSH, then make sure to copy the SSH URL.
 
 Clone a repo:
-Go to the shell, notice what directory you’re in. pwd displays the working directory. cd is the command to change directory. Personally, I would do this sort of thing in ~/tmp.
+Go to the shell, notice what directory you’re in. pwd displays the working directory. cd is the command to change directory. Make a folder called RFolder in C: (outside of user as everything in user will sink with onedrive)
 
 ```{r}
 #in shell type
-# ~/AppData/Local/Temp
+# cd C:/RFolder
 ```
  
 Clone myrepo from GitHub to your computer. Use the URL we just copied from GitHub. This URL should have your GitHub username and the name of your practice repo. If your shell (Appendix A) cooperates, you should be able to paste the whole https://.... bit that we copied above. But some shells are not (immediately) clipboard aware. In that sad case, you must type it. Accurately.
