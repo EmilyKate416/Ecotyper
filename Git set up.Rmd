@@ -110,3 +110,24 @@ File > New Project > Version Control > Git. In “Repository URL”, paste the U
 I suggest you check “Open in new session”, as that’s what you’ll usually do in real life.
 Click “Create Project”.
 You should find yourself in a new local RStudio Project that represents your test repo on GitHub. This should download the README.md file from GitHub. Look in RStudio’s file browser pane for the README.md file.
+
+
+Tell RStudio where to find Git
+If Git appears to be installed and findable, launch RStudio. Quit and re-launch RStudio if there’s any doubt in your mind about whether you opened RStudio before or after installing Git. Don’t make me stop this car and restart RStudio for you in office hours. DO IT.
+
+From RStudio, go to Tools > Global Options > Git/SVN and make sure that the box Git executable points to your Git executable.
+
+On macOS and Linux, the path usually looks something like this:
+
+/usr/bin/git
+If you need to set this on macOS, it can sometimes be hard to navigate to the necessary directory, once you’ve clicked “Browse” and are working with a Finder-type window. The keyboard shortcut “command + shift + g” will summon “Go To Folder”, where you will be able to type or paste any path you want.
+
+On Windows, this path should look something like this:
+
+C:/Program Files/Git/bin/git.exe
+
+WARNING: On Windows, do NOT use C:/Program Files/Git/cmd/git.exe. bin in the path is GOOD YES! cmd in the path is BAD NO!
+
+WARNING: On Windows, do NOT set this to git-bash.exe. Something that ends in git.exe is GOOD YES! git-bash.exe is BAD NO!
+
+Restart RStudio if you make any changes here. Don’t make me stop this car again and restart RStudio for you in office hours. DO IT.
