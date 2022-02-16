@@ -1,0 +1,148 @@
+---
+title: "tcga_ov_ecotyper_prep"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#https://benbermanlab.com/assets/code/Workshop%20-%20TCGA%20data%20analysis.html
+
+
+
+```{r}
+
+library(readr)
+suppressMessages({
+    library(TCGAbiolinks)
+    library(MultiAssayExperiment)
+    library(maftools)
+    library(dplyr)
+    library(ComplexHeatmap)
+})
+```
+
+```{r}
+clinical <- GDCquery_clinic("TCGA-OV")
+head(clinical)
+```
+
+```{r}
+query <- GDCquery(project = "TCGA-OV", 
+                  data.category = "Transcriptome Profiling", 
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "HTSeq - FPKM",
+                  barcode =  c("TCGA-10-0927-01A",
+"TCGA-13-0891-01A",
+"TCGA-23-1028-01A",
+"TCGA-36-1577-01A",
+"TCGA-04-1362-01A",
+"TCGA-29-1696-01A",
+"TCGA-59-A5PD-01A",
+"TCGA-13-0900-01B",
+"TCGA-24-1924-01A",
+"TCGA-24-1425-01A",
+"TCGA-24-1469-01A",
+"TCGA-25-1870-01A",
+"TCGA-04-1648-01A",
+"TCGA-23-1114-01B",
+"TCGA-61-1738-01A",
+"TCGA-25-1632-01A",
+"TCGA-25-1323-01A",
+"TCGA-59-2348-01A",
+"TCGA-13-0893-01B",
+"TCGA-VG-A8LO-01A",
+"TCGA-61-1741-01A",
+"TCGA-57-1584-01A",
+"TCGA-24-1424-01A",
+"TCGA-24-2297-01A",
+"TCGA-24-1417-01A",
+"TCGA-57-1586-01A",
+"TCGA-29-1707-02A",
+"TCGA-13-1501-01A",
+"TCGA-23-1023-01A",
+"TCGA-24-2261-01A",
+"TCGA-13-0762-01A",
+"TCGA-24-2035-01A",
+"TCGA-61-1911-01A",
+"TCGA-25-2400-01A",
+"TCGA-10-0936-01A",
+"TCGA-61-1737-01A",
+"TCGA-25-2396-01A",
+"TCGA-23-1111-01A",
+"TCGA-13-1407-01A",
+"TCGA-61-1918-01A",
+"TCGA-61-2104-01A",
+"TCGA-61-1725-01A",
+"TCGA-09-1665-01B",
+"TCGA-13-0908-01B",
+"TCGA-24-1553-01A",
+"TCGA-25-1626-01A",
+"TCGA-61-2110-01A",
+"TCGA-24-2254-01A",
+"TCGA-61-1728-01A",
+"TCGA-59-2350-01A",
+"TCGA-23-1024-01A",
+"TCGA-25-1320-01A",
+"TCGA-24-1847-01A",
+"TCGA-24-1845-01A",
+"TCGA-13-1405-01A",
+"TCGA-24-1418-01A",
+"TCGA-09-2051-01A",
+"TCGA-29-1766-01A",
+"TCGA-29-1763-01A",
+"TCGA-13-1492-01A",
+"TCGA-61-1721-01A",
+"TCGA-09-0367-01A",
+"TCGA-30-1714-01A",
+"TCGA-23-1029-01B",
+"TCGA-25-1322-01A",
+"TCGA-24-1422-01A",
+"TCGA-31-1959-01A",
+"TCGA-24-2033-01A",
+"TCGA-24-1435-01A",
+"TCGA-29-2427-01A",
+"TCGA-24-1923-01A",
+"TCGA-61-2111-01A",
+"TCGA-04-1332-01A",
+"TCGA-24-2271-01A",
+"TCGA-09-1668-01B",
+"TCGA-24-1551-01A",
+"TCGA-24-1565-01A",
+"TCGA-09-1669-01A",
+"TCGA-13-0804-01A",
+"TCGA-13-0887-01A",
+"TCGA-61-2102-01A",
+"TCGA-24-2298-01A",
+"TCGA-24-1431-01A",
+"TCGA-04-1341-01A",
+"TCGA-5X-AA5U-01A",
+"TCGA-13-0768-01A",
+"TCGA-24-1104-01A",
+"TCGA-13-1489-01A",
+"TCGA-10-0933-01A",
+"TCGA-13-1498-01A",
+"TCGA-13-0720-01A",
+"TCGA-25-1635-01A",
+"TCGA-29-1778-01A",
+"TCGA-23-1122-01A",
+"TCGA-13-1506-01A",
+"TCGA-25-1628-01A",
+"TCGA-25-1634-01A",
+"TCGA-61-2009-01A",
+"TCGA-24-2024-01A"
+
+))
+GDCdownload(query)
+raw.counts <- GDCprepare(query = query, summarizedExperiment = FALSE)
+```
+
+```{r}
+head(raw.counts)
+```
+
+```{r}
+write_delim(raw.counts, file="tcga-ov-first100.tsv", delim="\t") #write into tab delimited file
+```
+
