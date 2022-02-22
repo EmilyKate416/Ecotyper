@@ -9,20 +9,22 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #https://benbermanlab.com/assets/code/Workshop%20-%20TCGA%20data%20analysis.html
 
-
+#http://www.ensembl.org/info/data/biomart/biomart_r_package.html
 
 ```{r}
 
-library(readr)
 suppressMessages({
     library(TCGAbiolinks)
     library(MultiAssayExperiment)
     library(maftools)
     library(dplyr)
     library(ComplexHeatmap)
+    library(readr)
+    library(biomaRt)
 })
 ```
 
+GDC database connection:
 ```{r}
 clinical <- GDCquery_clinic("TCGA-OV")
 head(clinical)
@@ -135,7 +137,8 @@ query <- GDCquery(project = "TCGA-OV",
 
 ))
 GDCdownload(query)
-raw.counts <- GDCprepare(query = query, summarizedExperiment = FALSE)
+raw.counts <- GDCprepare(query = query, summarizedExperiment = FALSE) %>% 
+    rename(ensembl_gene_id_version = X1) #rename to match ensemble biomart notation
 ```
 
 ```{r}
@@ -144,5 +147,51 @@ head(raw.counts)
 
 ```{r}
 write_delim(raw.counts, file="tcga-ov-first100.tsv", delim="\t") #write into tab delimited file
+```
+
+Biomart: retrieve HUGO gene symbols
+```{r}
+library(biomaRt)
+
+#To get the list of all the Ensembl mart available on the ensembl.org website
+listEnsembl()
+
+```
+```{r}
+ensembl = useEnsembl(biomart="ensembl") ##The "useEnsembl" function allow you to connect to a an ensembl website mart by specifying a BioMart and dataset parameters.
+
+species <- listDatasets(ensembl)# to get a list of available species (mart datasets) 	
+
+#to connect to Ensembl live gene mart human dataset (GRCh38)
+###ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl") 
+
+#or to create a mart of human dataset of the Ensembl GRCh37
+grch37 = useEnsembl(biomart="ensembl",GRCh=37, dataset="hsapiens_gene_ensembl")
+
+head(listFilters(grch37)) #The "listFilters" function will give you the list of available filters for a given mart and species:
+
+head(listAttributes(grch37)) #The "listAttributes" function will give you the list of the available attributes for a given mart and species:
+```
+```{r}
+#The "getBM" function allows you to build a BioMart query using a list of mart filters and attributes.
+ genes <- getBM(attributes=c('ensembl_gene_id','hgnc_symbol','ensembl_gene_id_version'), mart = grch37)
+
+TCGA_genes <- raw.counts[,1]# create tbl of gene id versions present in TCGA datasets 
+TCGA_genes <- substr(TCGA_genes$ensembl_gene_id_version, 1,15) %>% # truncate to 15 characters to remove decimals (check all ensembl IDs are 15 characters before the decimal as standard)
+      as.tibble() %>% 
+      rename(ensembl_gene_id=value)
+
+TCGA_genes_matched <- TCGA_genes %>% left_join(genes, by='ensembl_gene_id')
+
+
+```
+
+
+```{r}
+mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+genes <- raw.counts$X1
+#raw.counts<-raw.counts[,-101]
+G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","hgnc_symbol"),values=genes,mart= mart)
+merge(genes,G_list,by.x="X1",by.y="ensembl_gene_id")
 ```
 
