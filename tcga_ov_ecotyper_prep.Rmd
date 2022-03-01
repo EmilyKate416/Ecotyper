@@ -6,12 +6,12 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
+Access and import TCGA data using the R/Bioconductor package TCGAbiolinks
 #https://benbermanlab.com/assets/code/Workshop%20-%20TCGA%20data%20analysis.html
 
 #http://www.ensembl.org/info/data/biomart/biomart_r_package.html
 
-```{r}
+```{r, load required packages}
 
 suppressMessages({
     library(TCGAbiolinks)
@@ -25,17 +25,24 @@ suppressMessages({
 ```
 
 GDC database connection:
+In order to filter the data available in GDC some fields are available such as project (TCGA, TARGET, etc.), data category (Transcriptome Profiling, DNA methylation, Clinical, etc.), data type (Gene Expression Quantification, Isoform Expression Quantification, Methylation Beta Value, etc.), experimental strategy (miRNA-Seq, RNA-Seq, etc.), Workflow Type, platform, access type and others.
+
 ```{r}
-clinical <- GDCquery_clinic("TCGA-OV")
+clinical <- GDCquery_clinic("TCGA-OV") # see what is in the TCGA-OV project in GDC database
 head(clinical)
 ```
 
-```{r}
+```{r downloading normalised read counts}
+#Fragments Per Kilobase of transcript per Million mapped reads (FPKM) is a simple expression level normalization method
+#FPKM is implemented at the GDC on gene-level read counts that are produced by HTSeq
+#Genome Build	GRCh38.p0
+#Genome Name	GRCh38.d1.vd1
+
 query <- GDCquery(project = "TCGA-OV", 
                   data.category = "Transcriptome Profiling", 
                   data.type = "Gene Expression Quantification", 
-                  workflow.type = "HTSeq - FPKM",
-                  barcode =  c("TCGA-10-0927-01A",
+                  workflow.type = "HTSeq - FPKM", #FPKM - A normalized expression value that takes into account each gene length and the number of reads mapped to all protein-coding genes
+                  barcode =  c("TCGA-10-0927-01A", # list of patient barcodes to download data for
 "TCGA-13-0891-01A",
 "TCGA-23-1028-01A",
 "TCGA-36-1577-01A",
@@ -166,7 +173,7 @@ species <- listDatasets(ensembl)# to get a list of available species (mart datas
 ###ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl") 
 
 #or to create a mart of human dataset of the Ensembl GRCh37
-grch37 = useEnsembl(biomart="ensembl",GRCh=37, dataset="hsapiens_gene_ensembl")
+grch37 = useEnsembl(biomart="ensembl",GRCh=37, dataset="hsapiens_gene_ensembl") # only 37 can be specified for GRCh version = current version
 
 head(listFilters(grch37)) #The "listFilters" function will give you the list of available filters for a given mart and species:
 
@@ -174,24 +181,60 @@ head(listAttributes(grch37)) #The "listAttributes" function will give you the li
 ```
 ```{r}
 #The "getBM" function allows you to build a BioMart query using a list of mart filters and attributes.
- genes <- getBM(attributes=c('ensembl_gene_id','hgnc_symbol','ensembl_gene_id_version'), mart = grch37)
+ genes <- getBM(attributes=c('ensembl_gene_id','hgnc_symbol','ensembl_gene_id_version', 'external_gene_name'), mart = grch37)
 
 TCGA_genes <- raw.counts[,1]# create tbl of gene id versions present in TCGA datasets 
 TCGA_genes <- substr(TCGA_genes$ensembl_gene_id_version, 1,15) %>% # truncate to 15 characters to remove decimals (check all ensembl IDs are 15 characters before the decimal as standard)
       as.tibble() %>% 
       rename(ensembl_gene_id=value)
 
-TCGA_genes_matched <- TCGA_genes %>% left_join(genes, by='ensembl_gene_id')
+TCGA_genes_matched <- TCGA_genes %>% left_join(genes, by='ensembl_gene_id') # to match the gene id in the TCGA table to those in ensembl list
 
 
 ```
-
 
 ```{r}
-mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
-genes <- raw.counts$X1
-#raw.counts<-raw.counts[,-101]
-G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","hgnc_symbol"),values=genes,mart= mart)
-merge(genes,G_list,by.x="X1",by.y="ensembl_gene_id")
+#matching named tcga genes back to tcga data 
+TCGA_genes_matched <-TCGA_genes_matched %>% dplyr::select(external_gene_name, ensembl_gene_id) 
+
+raw.counts$ensembl_gene_id_version <- substr(raw.counts$ensembl_gene_id_version, 1,15) 
+    # truncate to remove version number 
+raw.counts <- raw.counts %>%  rename(ensembl_gene_id=ensembl_gene_id_version)# rename to reflect that it no longer lists version
+
+
+raw.counts.named <- left_join(raw.counts, TCGA_genes_matched, by="ensembl_gene_id")
+
+nrow(raw.counts.named[is.na(raw.counts.named$external_gene_name),])
+
+missing_names <- raw.counts.named %>% filter(is.na(external_gene_name))
 ```
+```{r}
+raw.counts.named <- raw.counts.named %>% 
+  relocate(external_gene_name, .before = ensembl_gene_id) %>% 
+  dplyr::select(-ensembl_gene_id) %>% 
+  filter(!is.na(external_gene_name)) %>% 
+  write_delim(file="tcga-ov-first100.tsv", delim="\t")# need to deal with duplicated gene id - there are multiple versions of the same gene id so when I truncate to just gene id I end up with duplicated ids. Average out??
+```
+
+```{r}
+
+length(genes[genes$hgnc_symbol == "",]$hgnc_symbol) #26455 empty spaces (not NA) in HGNC list
+length(genes[genes$hgnc_symbol == "NA",]$hgnc_symbol) # 
+
+
+length(TCGA_genes[TCGA_genes$ensembl_gene_id %in% genes$ensembl_gene_id,]$ensembl_gene_id)
+
+TCGA_genes[!duplicated(TCGA_genes),] # no duplications
+
+nrow(TCGA_genes_matched[is.na(TCGA_genes_matched$external_gene_name),]) # 5770 in 
+
+#need to find out which genes are lacking external gene name and what to do with these
+#need to find out 
+#if genes in TCGA datasets are whole genome wide or just coding etc - if they have an ensembl ID they should have a gene name 
+#no duplicates in the ensemble gene ID version list from TCGA = good as don't need to figure out how to handle separate transcripts (EcoTyper can't handle duplicates)
+
+```
+
+
+
 
