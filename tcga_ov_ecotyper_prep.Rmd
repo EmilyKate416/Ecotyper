@@ -41,7 +41,7 @@ head(clinical)
 query <- GDCquery(project = "TCGA-OV", 
                   data.category = "Transcriptome Profiling", 
                   data.type = "Gene Expression Quantification", 
-                  workflow.type = "HTSeq - FPKM", #FPKM - A normalized expression value that takes into account each gene length and the number of reads mapped to all protein-coding genes
+                  workflow.type = "HTSeq - Counts", #or FPKM - A normalized expression value that takes into account each gene length and the number of reads mapped to all protein-coding genes
                   barcode =  c("TCGA-10-0927-01A", # list of patient barcodes to download data for
 "TCGA-13-0891-01A",
 "TCGA-23-1028-01A",
@@ -144,16 +144,16 @@ query <- GDCquery(project = "TCGA-OV",
 
 ))
 GDCdownload(query)
-raw.counts <- GDCprepare(query = query, summarizedExperiment = FALSE) %>% 
+counts <- GDCprepare(query = query, summarizedExperiment = FALSE) %>% 
     rename(ensembl_gene_id_version = X1) #rename to match ensemble biomart notation
 ```
 
 ```{r}
-head(raw.counts)
+head(counts)
 ```
 
 ```{r}
-write_delim(raw.counts, file="tcga-ov-first100.tsv", delim="\t") #write into tab delimited file
+write_delim(counts, file="tcga-ov-first100.tsv", delim="\t") #write into tab delimited file
 ```
 
 Biomart: retrieve HUGO gene symbols
@@ -183,7 +183,7 @@ head(listAttributes(grch37)) #The "listAttributes" function will give you the li
 #The "getBM" function allows you to build a BioMart query using a list of mart filters and attributes.
  genes <- getBM(attributes=c('ensembl_gene_id','hgnc_symbol','ensembl_gene_id_version', 'external_gene_name'), mart = grch37)
 
-TCGA_genes <- raw.counts[,1]# create tbl of gene id versions present in TCGA datasets 
+TCGA_genes <- counts[,1]# create tbl of gene id versions present in TCGA datasets 
 TCGA_genes <- substr(TCGA_genes$ensembl_gene_id_version, 1,15) %>% # truncate to 15 characters to remove decimals (check all ensembl IDs are 15 characters before the decimal as standard)
       as.tibble() %>% 
       rename(ensembl_gene_id=value)
@@ -197,19 +197,19 @@ TCGA_genes_matched <- TCGA_genes %>% left_join(genes, by='ensembl_gene_id') # to
 #matching named tcga genes back to tcga data 
 TCGA_genes_matched <-TCGA_genes_matched %>% dplyr::select(external_gene_name, ensembl_gene_id) 
 
-raw.counts$ensembl_gene_id_version <- substr(raw.counts$ensembl_gene_id_version, 1,15) 
+counts$ensembl_gene_id_version <- substr(counts$ensembl_gene_id_version, 1,15) 
     # truncate to remove version number 
-raw.counts <- raw.counts %>%  rename(ensembl_gene_id=ensembl_gene_id_version)# rename to reflect that it no longer lists version
+counts <- counts %>%  rename(ensembl_gene_id=ensembl_gene_id_version)# rename to reflect that it no longer lists version
 
 
-raw.counts.named <- left_join(raw.counts, TCGA_genes_matched, by="ensembl_gene_id")
+counts.named <- left_join(counts, TCGA_genes_matched, by="ensembl_gene_id")
 
-nrow(raw.counts.named[is.na(raw.counts.named$external_gene_name),])
+nrow(counts.named[is.na(counts.named$external_gene_name),])
 
-missing_names <- raw.counts.named %>% filter(is.na(external_gene_name))
+missing_names <- counts.named %>% filter(is.na(external_gene_name))
 ```
 ```{r}
-raw.counts.named <- raw.counts.named %>% 
+counts.named <- counts.named %>% 
   relocate(external_gene_name, .before = ensembl_gene_id) %>% 
   dplyr::select(-ensembl_gene_id) %>% 
   filter(!is.na(external_gene_name)) %>% 
@@ -235,6 +235,93 @@ nrow(TCGA_genes_matched[is.na(TCGA_genes_matched$external_gene_name),]) # 5770 i
 
 ```
 
+```{r, filtering out unwanted (lowly expressed) genes}
+library(tximport)
+library(DESeq2)
+#check if you can do this on data that has already been normalised
+#counts<- data.frame(counts, row.names = 1)
+counts <- round(counts, 0) 
+ # change first columns to row names so rowSums can be used on the table
+
+keep <- rowSums(counts) > 5 # for each gene, compute total count and compare to threshold
+# keeping outcome in vector of 'logicals' (ie TRUE or FALSE, or NA)
+# summary of test outcome: number of genes in each class:
+table(keep, useNA="always") 
+
+# subset genes where test was TRUE
+filtCounts <- counts[keep,] 
+
+# check dimension of new count matrix
+dim(filtCounts)
+# few outliers affect distribution visualization
+boxplot(filtCounts, main="raw counts", las=2)
+```
+```{r}
+library(DelayedMatrixStats)
+library(sparseMatrixStats)
+# Raw counts mean expression Vs standard Deviation (SD)
+
+plot <- data.matrix(filtCounts, rownames.force = NA)
+
+#as mean increases standard variation increases
+#genes with high expression and more variance (top right) are going to appear more important than they are 
+plot(rowMeans(plot), rowSds(plot), 
+     main='Raw counts: sd vs mean', 
+     xlim=c(0,10000), # set limits in data
+     ylim=c(0,5000))
+```
+
+```{r}
+# Get log2 counts
+logcounts <- log2(filtCounts + 1)
+# summary(logcounts[,1]) # summary for first column
+# summary(logcounts) # summary for each column
+
+#We will check the distribution of read counts using a boxplot and add some colour to see if there is any difference between sample groups.
 
 
+# Check distributions of samples using boxplots
+boxplot(logcounts[,1:20],
+        xlab="",
+        ylab="Log2(Counts)",
+        las=2,
+        main="Log2(Counts)")
+# all fairly similar
+plot <- data.matrix(logcounts, rownames.force = NA)
+
+# Log2 counts standard deviation (sd) vs mean expression
+plot(rowMeans(plot), rowSds(plot), 
+     main='Log2 Counts: sd vs mean')
+#now the plot points downwards more, the more lowly expressed genes have more variance now though which could overinflate their importance
+```
+```{r}
+library(DESeq2)
+#Variance stabilizing transformation (VST) aims at generating a matrix of values for which variance is constant across the range of mean values, especially for low mean.
+
+#The vst function computes the fitted dispersion-mean relation, derives the transformation to apply and accounts for library size.
+
+vst_counts <- vst(data.matrix(filtCounts))
+
+# Check distributions of samples using boxplots
+boxplot(vst_counts, 
+        xlab="", 
+        ylab="VST counts",
+        las=2)
+
+# VST counts standard deviation (sd) vs mean expression
+plot(rowMeans(vst_counts), rowSds(vst_counts), 
+     main='VST counts: sd vs mean')
+
+```
+
+```{r}
+library(ggfortify)
+library(rnaseqGene)
+
+rlogcounts <- rlog(filtCounts)
+# run PCA
+pcDat <- prcomp(t(rlogcounts))
+# plot PCA
+autoplot(pcDat)
+```
 
