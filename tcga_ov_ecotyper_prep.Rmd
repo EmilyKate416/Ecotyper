@@ -38,6 +38,7 @@ head(clinical)
 #FPKM is implemented at the GDC on gene-level read counts that are produced by HTSeq
 #Genome Build	GRCh38.p0
 #Genome Name	GRCh38.d1.vd1
+change
 
 query <- GDCquery(project = "TCGA-OV", 
                   data.category = "Transcriptome Profiling", 

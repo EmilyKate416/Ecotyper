@@ -1,0 +1,26 @@
+---
+title: "TCGA-OV preprocessed from  Tatlow and Piccolo, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(readr)
+```
+
+
+```{r}
+#using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
+#TCGA_OV_tpm.tsv.gz from https://osf.io/64ts9/ 
+
+setwd("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/") 
+
+TCGA_OV_tpm <- read_delim("TCGA_OV_tpm.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+```
+
