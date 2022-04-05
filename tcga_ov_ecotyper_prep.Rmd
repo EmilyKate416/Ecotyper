@@ -21,6 +21,7 @@ suppressMessages({
     library(ComplexHeatmap)
     library(readr)
     library(biomaRt)
+  library(GenomicDataCommons)
 })
 ```
 
@@ -318,10 +319,84 @@ plot(rowMeans(vst_counts), rowSds(vst_counts),
 library(ggfortify)
 library(rnaseqGene)
 
-rlogcounts <- rlog(filtCounts)
+#apply a regularised log transformation
+filtCounts <-data.matrix(filtCounts, rownames.force = NA) # rlog takes a DESeqDataSet or matrix of counts as input so convert from dataframe to matrix
+rlogcounts <- rlog(filtCounts) #transforms the count data to the log2 scale, minimizing differences between samples for rows with small counts, and normalising with respect to library size. The rlog transformation produces a similar variance stabilizing effect as varianceStabilizingTransformation, though rlog is more robust in the case when the size factors vary widely. The transformation is useful when checking for outliers or as input for machine learning techniques such as clustering or linear discriminant analysis. rlog returns a RangedSummarizedExperiment object.
 # run PCA
-pcDat <- prcomp(t(rlogcounts))
+pcDat <- prcomp(t(rlogcounts)) # t transforms the data so the genes are columns and samples are rows (as required by prcomp), prcomp performs a principal components analysis on the given data matrix and returns the results as an object of class prcomp.
 # plot PCA
 autoplot(pcDat)
+
+#The plot shows us the first two principle components i.e. the relationship between the samples according to the two greatest sources of variation. If you were to colour the samples by treatment, time point or some other variable you changed/were testing in your experiment, ideally PC1 would be that variable, responsible for the largest source of variation. Sometime, particularly with more complex experiments with more than two experimental factors, or where there might be confounding factors, it is helpful to look at more principle components. eg You don't want to find that the date of RNA extracted was the biggest component in your PCA, confounding any effects of the test variables. Therefore you should gather the metadata and label these by sample to plot this on the graph also. 
+
+autoplot(pcDat,
+         data = sampleinfo, 
+         colour="Status", 
+         shape="TimePoint",
+         size=5)
+```
+#retrieving metadata:
+https://bioconductor.github.io/BiocWorkshops/public-data-resources-and-bioconductor.html#genomicdatacommons
+```{r}
+GenomicDataCommons::status() # check connectivity to GDC and functionality 
+```
+
+```{r}
+
+#The following code builds a manifest that can be used to guide the download of raw data. Here, filtering finds gene expression files quantified as raw counts using HTSeq from ovarian cancer patients
+ge_manifest = files() %>%
+    filter( ~ cases.project.project_id == 'TCGA-OV' &
+                type == 'gene_expression' &
+                analysis.workflow_type == 'HTSeq - Counts') %>%
+    manifest()
+```
+#After the 379 gene expression files specified in the query above. Using multiple processes to do the download very significantly speeds up the transfer in many cases. On a standard 1Gb connection, the following completes in about 30 seconds. The first time the data are downloaded, R will ask to create a cache directory (see ?gdc_cache for details of setting and interacting with the cache). Resulting downloaded files will be stored in the cache directory. Future access to the same files will be directly from the cache, alleviating multiple downloads.
+
+
+```{r}
+fnames = lapply(ge_manifest$id[1:20],gdcdata) # first 20 ID
+
+
+```
+
+#The GenomicDataCommons can access the significant clinical, demographic, biospecimen, and annotation information contained in the NCI GDC.
+unctionality for finding and accessing files and metadata can be divided into:
+
+Simple query constructors based on GDC API endpoints.
+A set of verbs that when applied, adjust filtering, field selection, and faceting (fields for aggregation) and result in a new query object (an endomorphism)
+A set of verbs that take a query and return results from the GDC
+In addition, there are exhiliary functions for asking the GDC API for information about available and default fields, slicing BAM files, and downloading actual data files. Here is an overview of functionality7.
+
+Creating a query
+projects()
+cases()
+files()
+annotations()
+Manipulating a query
+filter()
+facet()
+select()
+Introspection on the GDC API fields
+mapping()
+available_fields()
+default_fields()
+grep_fields()
+field_picker()
+available_values()
+available_expand()
+Executing an API call to retrieve query results
+results()
+count()
+response()
+Raw data file downloads
+gdcdata()
+transfer()
+gdc_client()
+Summarizing and aggregating field values (faceting)
+aggregations()
+Authentication
+gdc_token()
+BAM file slicing
+slicing()
 ```
 
