@@ -1,0 +1,126 @@
+[33mcommit 38b581429cc9782b36d78c7d672452d7666a7ba0[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Tue Apr 5 17:40:45 2022 +0100
+
+    test
+
+[33mcommit 7522027dfff6cbe17a715ddffd7e6b7fb2acad17[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Tue Apr 5 17:36:59 2022 +0100
+
+    test
+
+[33mcommit a342e86f723130bdcc871a26cbf6a6a8d3a61628[m
+Merge: 585afbd b6eb7f0
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Tue Apr 5 17:36:09 2022 +0100
+
+    Merge branch 'main' of https://github.com/EmilyKate416/Ecotyper into main
+
+[33mcommit b6eb7f09a0343c75f4ef61aa6ff43305f1fb9a7b[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: EmilyKate416 <94976953+EmilyKate416@users.noreply.github.com>
+Date:   Tue Apr 5 17:24:42 2022 +0100
+
+    Add files via upload
+
+[33mcommit 585afbd24a374a836b6058255d9b5d9f8270a448[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Tue Apr 5 17:15:48 2022 +0100
+
+    c
+
+[33mcommit a9bd2101e0ecf88ccbf806461cfe290d0134e4f2[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Fri Mar 11 10:39:47 2022 +0000
+
+    d
+
+[33mcommit eca0504c877b7e2a28b0b36ac2d13d4f1e430000[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Thu Mar 10 17:33:51 2022 +0000
+
+    y
+
+[33mcommit 2c376f707cf4dd06d1a477ae135ce66a25508ed9[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Fri Mar 4 14:35:27 2022 +0000
+
+    u
+
+[33mcommit 3d26d29c1911a915cfc781da79497c6922375298[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Tue Mar 1 17:10:17 2022 +0000
+
+    update
+
+[33mcommit 62a9beec4140814ddff42763d0d64067229ea1fc[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Tue Feb 22 20:25:44 2022 +0000
+
+    update
+
+[33mcommit 2473d9e20308b758d2982cc540333c0cfa7cc67a[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Wed Feb 16 18:46:56 2022 +0000
+
+    ecotyper prep
+
+[33mcommit cfa71e9d324c8c6bbf38d5c7a3d7c2ebe8414e36[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Mon Dec 13 15:07:56 2021 +0000
+
+    delete
+
+[33mcommit 8dd19027398d350867cffb25f2e2b8a33682159a[m
+Author: Emily Lythgoe <lythgo02@jblab-srv002.cri.camres.org>
+Date:   Fri Dec 10 15:36:45 2021 +0000
+
+    test
+
+[33mcommit ad2156163ba323c4a26ab233551c20d1cb159abe[m
+Author: Emily Lythgoe <Emily.Lythgoe@cruk.cam.ac.uk>
+Date:   Wed Dec 1 17:45:10 2021 +0000
+
+    update
+
+[33mcommit d9dc74835e1396188f74aae4e90a03dce0963076[m
+Author: Emily Lythgoe <Emily.Lythgoe@cruk.cam.ac.uk>
+Date:   Wed Dec 1 17:30:00 2021 +0000
+
+    update
+
+[33mcommit c9bcbb0fdc4db02beef9794e7e7df9a4eca5684b[m
+Author: Emily Lythgoe <Emily.Lythgoe@cruk.cam.ac.uk>
+Date:   Wed Dec 1 15:38:12 2021 +0000
+
+    set up
+
+[33mcommit ba9eb4169e49480580afc80af7e603c156891c93[m
+Author: Emily Lythgoe <Emily.Lythgoe@cruk.cam.ac.uk>
+Date:   Wed Dec 1 15:35:46 2021 +0000
+
+    Git set up test
+
+[33mcommit c5843301e9f3fdfe8a65e1bc1f3db196a38c7cd1[m
+Author: EmilyKate416 <94976953+EmilyKate416@users.noreply.github.com>
+Date:   Wed Nov 24 15:29:08 2021 +0000
+
+    Delete XGBoost
+
+[33mcommit 4a6d78f89486e8d073dfc47026fa23769a6669fd[m
+Author: EmilyKate416 <94976953+EmilyKate416@users.noreply.github.com>
+Date:   Wed Nov 24 15:28:27 2021 +0000
+
+    Create XGBoost
+
+[33mcommit e3bf0f5bceda54cecd82574ac19b2e464fa46789[m
+Author: EmilyKate416 <94976953+EmilyKate416@users.noreply.github.com>
+Date:   Wed Nov 24 15:28:06 2021 +0000
+
+    Update dummy_model.Rmd
+
+[33mcommit eb3183a8c5ded6c046efe7d7474a02232b2aa7ff[m
+Author: EmilyKate416 <94976953+EmilyKate416@users.noreply.github.com>
+Date:   Wed Nov 24 15:27:06 2021 +0000
+
+    Add files via upload
