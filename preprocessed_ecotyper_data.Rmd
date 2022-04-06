@@ -17,10 +17,35 @@ library(readr)
 #using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
 #TCGA_OV_tpm.tsv.gz from https://osf.io/64ts9/ 
 
-setwd("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/") 
-
-TCGA_OV_tpm <- read_delim("TCGA_OV_tpm.tsv", 
+TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/TCGA_OV_tpm.tsv", 
     delim = "\t", escape_double = FALSE, 
-    trim_ws = TRUE)
+    trim_ws = TRUE) %>% 
+  rename(id=...1) %>% #rename the first column 
+  separate( col = id, #separating out the identifiers in the first column by non alphanumeric characters
+            into=c("1", "2", "3", "4", "5", "6", "7", "8"),
+           sep='\\|', #| is a special character so requires \\
+            remove=FALSE) 
+
+
+
+#or TCGA_OV_tpm <-TCGA_OV_tpm %>% data.frame(do.call("rbind", strsplit(as.character(TCGA_OV_tpm$id), "|", fixed=TRUE))) # separates out and adds as new columns at the end using base R
+
+dplyr::group_by(TCGA_OV_tpm, 6) %>% dplyr::summarise_all(sum)
+
+  collapsed <- TCGA_OV_tpm %>% 
+    select(-"id",-"1",-"2",-"3",-"4",-"5",-"7",-"8",) %>% 
+    rename(gene="6") %>% 
+     group_by(gene) %>% 
+     summarise_all(funs(sum)) %>% 
+    write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t")
+                                     
+                                     
+TCGA_OV_tpm_hgnc <- TCGA_OV_tpm %>% 
+  select(-"id",-"1",-"2",-"3",-"4",-"6",-"7",-"8") %>% 
+  select(1:110) %>% 
+  write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t") 
+```
+
+ 
 ```
 
