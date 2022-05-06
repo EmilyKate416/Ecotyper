@@ -43,7 +43,7 @@ head(clinical)
 #Release Date: March 29, 2022
 #New updates: RNA-Seq STAR-Counts files now contain additional normalized counts such as FPKM, FPKM-UQ, and TPM
 #TCGA RNA-Seq has been changed to contain three alignments (genomic, transcriptome, and chimeric), STAR-counts files, and transcript fusion files for each aliquot.Files from the HTSeq pipeline are no longer supported and will no longer appear in the portal. Normalized counts can now be found in the STAR-Counts files.
- test
+
 
 #attempt to use legacy data:
 #https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/query.html#Gene_expression
@@ -273,15 +273,15 @@ query <- GDCquery(project = "TCGA-OV",
 
 ))
 GDCdownload(query)
-counts <- GDCprepare(query) #%>% 
-    #rename(ensembl_gene_id_version = X1) #rename to match ensemble biomart notation
+counts <- GDCprepare(query) %>% 
+    rename(ensembl_gene_id_version = X1) #rename to match ensemble biomart notation
 
 #or experimenting how to combine the files from a manifest download into matrix
-gdcRNADownload(project.id = "TCGA-OV", data.type="RNAseq")
-metaMatrix <- gdcParseMetadata(project.id='TCGA-OV',
+GDCRNATools::gdcRNADownload(project.id = "TCGA-OV", data.type="RNAseq")
+metaMatrix <- GDCRNATools::gdcParseMetadata(project.id='TCGA-OV',
 data.type='RNAseq')
 
-rnaExpr <- gdcRNAMerge(metadata=metaMatrix, path='RNAseq/', data.type='RNAseq')
+rnaExpr <- GDCRNATools::gdcRNAMerge(metadata=metaMatrix, path='RNAseq/', data.type='RNAseq')
 
 
 ```

@@ -8,7 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-
+library(tidyverse)
 library(readr)
 ```
 
@@ -16,6 +16,14 @@ library(readr)
 ```{r}
 #using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
 #TCGA_OV_tpm.tsv.gz from https://osf.io/64ts9/ 
+
+#In coordination with the Institute for Systems Biology (ISB)34, Tatlow and Piccolo used Google Cloud Platform to process 12,307 RNA-Sequencing samples from the CCLE and TCGA projects. After preprocessing, they aligned sequencing reads to the most current GENCODE reference transcriptome (see Methods) and calculated transcript-expression levels using kallisto, a pseudoalignment and read-quantification program.
+#The TCGA samples were available in FASTQ format; therefore, they did not need to sort or convert the data. For sample preprocessing, the FASTQ files were unpacked, decompressed, and quality trimmed
+#kallisto is a program for quantifying abundances of transcripts from bulk and single-cell RNA-Seq data, or more generally of target sequences using high-throughput sequencing reads. It is based on the novel idea of pseudoalignment for rapidly determining the compatibility of reads with targets, without the need for alignment.
+#The FASTQ files were used as input to kallisto (version 0.43.0)35, which pseudoaligned the reads to the GENCODE reference transcriptome (version 24)59 and quantified transcript-expression levels.
+#deposited the processed data—as read counts and transcripts per million—in tabular format and in Google’s BigQuery database (see https://osf.io/gqrz9), output of kallisto
+
+#The IDs used in the TCGA matrices are CGHubAnalysisIDs, which you can't search on the Genomic Data Commons. If you want to change these IDs to something else, you can use map_TCGA_id.py and TCGA_ID_MAP.csv to change them to Aliquot Barcodes or Aliquot ID's, just know that neither of these two identifiers are unique.
 
 TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/TCGA_OV_tpm.tsv", 
     delim = "\t", escape_double = FALSE, 
@@ -25,6 +33,9 @@ TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tat
             into=c("1", "2", "3", "4", "5", "6", "7", "8"),
            sep='\\|', #| is a special character so requires \\
             remove=FALSE) 
+
+
+  filter(8=="protein_coding")
 
 
 
@@ -39,7 +50,7 @@ dplyr::group_by(TCGA_OV_tpm, 6) %>% dplyr::summarise_all(sum)
      summarise_all(funs(sum)) %>% 
     write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t")
                                      
-                                     
+#selecting a subset of the data as ecotyper will only accept files up to 200kb in size                                     
 TCGA_OV_tpm_hgnc <- TCGA_OV_tpm %>% 
   select(-"id",-"1",-"2",-"3",-"4",-"6",-"7",-"8") %>% 
   select(1:110) %>% 
