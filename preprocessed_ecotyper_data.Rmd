@@ -13,7 +13,7 @@ library(readr)
 ```
 
 
-```{r}
+```{r loading the data}
 #using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
 #TCGA_OV_tpm.tsv.gz from https://osf.io/64ts9/ 
 
@@ -25,31 +25,107 @@ library(readr)
 
 #The IDs used in the TCGA matrices are CGHubAnalysisIDs, which you can't search on the Genomic Data Commons. If you want to change these IDs to something else, you can use map_TCGA_id.py and TCGA_ID_MAP.csv to change them to Aliquot Barcodes or Aliquot ID's, just know that neither of these two identifiers are unique.
 
+#note The 'havana_gene' and 'havana_transcript' attributes indicate the internal gene and transcript stable ids used by Havana and are also the main identifiers in the (now archived) Vega genome browser.They start with 'OTTHUM' and 'OTTMUS' for human and mouse respectively.
 TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/TCGA_OV_tpm.tsv", 
     delim = "\t", escape_double = FALSE, 
     trim_ws = TRUE) %>% 
-  rename(id=...1) %>% #rename the first column 
+ rename(id=...1) %>% #rename the first column 
   separate( col = id, #separating out the identifiers in the first column by non alphanumeric characters
-            into=c("1", "2", "3", "4", "5", "6", "7", "8"),
+            into=c(	"ensembl_transcript_id_version", 	#matching to the names in ensembl filters
+                    "ensembl_gene_id_version", 
+                    "havana_gene_id_version", 
+                    "havana_transcript_id_version", 
+                    "hgnc_trans_name", 
+                    "hgnc_symbol", 
+                    "unknown_number", 
+                    "transcript_type"),
            sep='\\|', #| is a special character so requires \\
             remove=FALSE) 
 
-
-  filter(8=="protein_coding")
-
-
-
 #or TCGA_OV_tpm <-TCGA_OV_tpm %>% data.frame(do.call("rbind", strsplit(as.character(TCGA_OV_tpm$id), "|", fixed=TRUE))) # separates out and adds as new columns at the end using base R
 
-dplyr::group_by(TCGA_OV_tpm, 6) %>% dplyr::summarise_all(sum)
 
-  collapsed <- TCGA_OV_tpm %>% 
-    select(-"id",-"1",-"2",-"3",-"4",-"5",-"7",-"8",) %>% 
-    rename(gene="6") %>% 
-     group_by(gene) %>% 
-     summarise_all(funs(sum)) %>% 
-    write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t")
-                                     
+```
+
+```{r filtering out unwanted transcripts}
+categories <-  # take a look at what makes up the data: 79930 protein coding transcripts
+TCGA_OV_tpm %>% 
+  group_by(transcript_type) %>% 
+  summarise(transcript_type_count = n())
+
+variants <-TCGA_OV_tpm %>% 
+  group_by(`hgnc_symbol`) %>% 
+  summarise(counts=n())
+
+ TCGA_OV_tpm_coding <- TCGA_OV_tpm %>%  #removing retained introns, pseudogene reads, nonsense mediated decay and other non-coding transcripts
+   filter(transcript_type=='protein_coding') #shrinks from 199169 to 79930 rows with transcript variants from 19594 genes
+ 
+# (Intron retention (IR) is an alternative splicing mode whereby introns, rather than being spliced out as usual, are retained in mature mRNAs. Nonsense mediated decay reduces errors in gene expression by eliminating mRNA transcripts that contain premature stop codons.).
+ 
+ variants_2 <- TCGA_OV_tpm_coding %>%  # taking a look at which genes have multiple transcript versions 
+   group_by(hgnc_symbol) %>% 
+   summarise(counts=n())
+ 
+```
+
+```{r summing up the TPM of different transcripts for each each }
+#collapse each row with duplicate transcripts into a single row with the sum of all the transcripts as EcoTyper cannot accept duplicate names 
+  collapsed <- TCGA_OV_tpm_coding %>% 
+    dplyr::select(-id,
+                  -hgnc_trans_name, 
+                  -ensembl_transcript_id_version, 
+                  -ensembl_gene_id_version, 
+                  -havana_gene_id_version, 
+                  -havana_transcript_id_version,
+           -unknown_number, 
+           -transcript_type) %>% 
+     group_by(TCGA_OV_tpm_coding$hgnc_symbol)# %>% 
+     summarise_all(funs(sum))#%>% 
+    #write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t")
+```
+
+```{r or taking the median TPM of transcript versions}
+
+huh <-TCGA_OV_tpm_coding %>% dplyr::select(-id,
+                  -hgnc_trans_name, 
+                  -ensembl_transcript_id_version, 
+                  -ensembl_gene_id_version, 
+                  -havana_gene_id_version, 
+                  -havana_transcript_id_version,
+           -unknown_number, 
+           -transcript_type) %>% 
+  group_by(hgnc_symbol) %>%
+  summarise(across( funs(mean(., na.rm=TRUE))))
+
+
+#trying to calculate median expression for each transcript isoform using the Bioconductor package SplicingFactory
+
+
+# Extract gene names
+genes <- TCGA_OV_tpm[, "hgnc_symbol"]
+
+# Extract read count data without gene names
+tpm <- TCGA_OV_tpm_coding[, 10:431]
+
+# Check TPM dataset
+dim(tpm)
+#> [1] 79930   422
+
+#As a first step, before doing the diversity calculation, you might want to filter out genes with a low overall expression or limit the analysis to transcripts with a sufficient minimum expression level. Expression estimates of transcript isoforms with zero or low expression might be highly variable.
+
+#Here, we are filtering out transcript isoforms with less than 5 reads in more than 5 samples. Additionally, we update the genes vector to match the new filtered matrix.
+
+#tokeep <- rowSums(tpm > 5) > 5
+#tpm <- tpm[tokeep, ]
+#genes <- genes[tokeep]
+
+#as this matrix is TPM I am not filtering out lowly expressed isoforms yet (may reconsider)
+
+
+laplace_entropy <- SplicingFactory::calculate_diversity(tpm, genes, method = "laplace", tpm=TRUE,
+                                       norm = TRUE, verbose = TRUE)
+```
+```{r}
 #selecting a subset of the data as ecotyper will only accept files up to 200kb in size                                     
 TCGA_OV_tpm_hgnc <- TCGA_OV_tpm %>% 
   select(-"id",-"1",-"2",-"3",-"4",-"6",-"7",-"8") %>% 
@@ -57,6 +133,7 @@ TCGA_OV_tpm_hgnc <- TCGA_OV_tpm %>%
   write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t") 
 ```
 
- 
+```{r}
+sessionInfo()
 ```
 
