@@ -85,7 +85,6 @@ variants <-TCGA_OV_tpm %>%
 ```
 
 ```{r or taking the median TPM of transcript versions}
-
 huh <-TCGA_OV_tpm_coding %>% dplyr::select(-id,
                   -hgnc_trans_name, 
                   -ensembl_transcript_id_version, 
@@ -96,13 +95,15 @@ huh <-TCGA_OV_tpm_coding %>% dplyr::select(-id,
            -transcript_type) %>% 
   group_by(hgnc_symbol) %>%
   summarise(across( funs(mean(., na.rm=TRUE))))
+```
 
+SplicingFactory is an R package for the analysis of alternative splicing isoform diversity. The package provides the ability to generate gene-level Shannon-entropy values and other diversity measures, such as the Gini- or Simpson-index. These measures can quantify transcript isoform diversity within samples or between conditions. Additionally, the package analyzes the isoform diversity data, looking for significant changes between conditions. A basic task during analysis is to use read counts or TPM to calculate a diversity measure and then perform a differential analysis to identify genes with a significant change between conditions. 
+https://bioconductor.org/packages/devel/bioc/vignettes/SplicingFactory/inst/doc/SplicingFactory.html#data-filtering-and-preprocessing
 
-#trying to calculate median expression for each transcript isoform using the Bioconductor package SplicingFactory
-
+```{r SplicingFactory to look at transcriptisoforms}
 
 # Extract gene names
-genes <- TCGA_OV_tpm[, "hgnc_symbol"]
+genes <- TCGA_OV_tpm_coding[, "hgnc_symbol"]
 
 # Extract read count data without gene names
 tpm <- TCGA_OV_tpm_coding[, 10:431]
@@ -121,10 +122,105 @@ dim(tpm)
 
 #as this matrix is TPM I am not filtering out lowly expressed isoforms yet (may reconsider)
 
+#While SplicingFactory can process any kind of numeric value, used to measure expression levels, we recommend TPM or similar length normalized values.
 
-laplace_entropy <- SplicingFactory::calculate_diversity(tpm, genes, method = "laplace", tpm=TRUE,
-                                       norm = TRUE, verbose = TRUE)
+#calculate_diversity function to calculate two different types of transcript diversity:
+#x - Input data, in various formats, discussed in more detail in the Input data structure and Data arrangement section.
+#genes - A vector with gene names used for aggregating the transcript level data.
+#method - Method to use for splicing diversity calculation.
+#norm - If set to TRUE, the entropy values are normalized to the number of transcripts for each gene.
+#tpm - In the case of a tximport list, you might want set the tpm argument. As the default option is FALSE, the raw read counts will be extracted from your input data. Set it to TRUE if you want to use TPM values.
+#assayno - An optional argument is assayno, which is useful if you are planning to analyze a SummarizedExperiment input, containing multiple assays. assayno is a numeric value, specifying the assay to be analyzed.
+#verbose - Set it to TRUE if you want more detailed diagnostic messages.
+#To calculate Laplace entropy, where values are normalized between 0 and 1, use:
+library(SplicingFactory)
+library(SummarizedExperiment)
+
+laplace_entropy <- calculate_diversity(tpm, genes$hgnc_symbol, method = "laplace", #not sure if I can perform this on TPM
+                                       norm = FALSE, verbose = TRUE)
+
+head(assay(laplace_entropy)[, 1:5]) # examine the output using the assay function from SummarisedExperiment
+
+#To calculate Gini index, you don’t need to specify the norm argument, as the Gini index is by definition ranges between 0 (complete equality) and 1 (complete inequality).
+
+gini_index <- calculate_diversity(tpm, genes$hgnc_symbol,  method = "gini",
+                                  verbose = TRUE)
+#> Note: There are 70 genes with single isoforms,
+#>     which will be exluded from the analysis.
+
+head(assay(gini_index)[, 1:5])
 ```
+
+Both for the Laplace-entropy and Gini index calculation, the package returns a SummarizedExperiment object, that you can investigate further with the assay function.
+
+The package automatically filters out genes with a single isoform, as splicing diversity values can only be calculated for genes with at least 2 splicing isoforms.
+
+Some genes might show NA diversity values. This means that the expression was zero for all transcript isoforms of the gene in these samples and the package could not calculate any diversity value. Lack of expression might also be the result of technical issues.
+
+
+
+```{r To see the distribution and density of the splicing diversity data}
+library("ggplot2")
+
+# Construct data.frame from SummarizedExperiment result
+laplace_data <- cbind(assay(laplace_entropy),
+                      Gene = rowData(laplace_entropy)$genes)
+
+# Reshape data.frame
+laplace_data <- pivot_longer(laplace_data, -Gene, names_to = "sample",
+                             values_to = "entropy")
+
+# Add sample type information
+laplace_data$sample_type <- apply(laplace_data[, 2], 1,
+                                  function(x) ifelse(grepl("_N", x),
+                                                     "Normal", "Tumor")) # think I need to change the sample ID to this format TCGA-A7-A0CH-11A-32R-A089-07 to get it to work
+
+# Filter genes with NA entropy values
+laplace_data <- drop_na(laplace_data)
+
+# Update gene names and add diversity type column
+laplace_data$Gene <- paste0(laplace_data$Gene, "_", laplace_data$sample_type)
+laplace_data$diversity <-  "Normalized Laplace entropy"
+
+# Construct data.frame from SummarizedExperiment result
+gini_data <- cbind(assay(gini_index), Gene = rowData(gini_index)$genes)
+
+# Reshape data.frame
+gini_data <- pivot_longer(gini_data, -Gene, names_to = "sample",
+                          values_to = "gini")
+
+# Add sample type information
+gini_data$sample_type <- apply(gini_data[, 2], 1,
+                               function(x) ifelse(grepl("_N", x),
+                                                  "Normal", "Tumor"))
+
+# Filter genes with NA gini values
+gini_data <- drop_na(gini_data)
+
+# Update gene names and add diversity type column
+gini_data$Gene <- paste0(gini_data$Gene, "_", gini_data$sample_type)
+gini_data$diversity <-  "Gini index"
+
+# Plot diversity data
+ggplot() +
+  geom_density(data = laplace_data, alpha = 0.3,
+               aes(x = entropy, group = sample, color = diversity)) +
+  geom_density(data = gini_data, alpha = 0.3,
+               aes(x = gini, group = sample, color = diversity)) +
+  facet_grid(. ~ sample_type) +
+  scale_color_manual(values = c("black", "darkorchid4")) +
+  guides(color = FALSE) +
+  theme_minimal() +
+  labs(x = "Diversity values",
+       y = "Density")
+#> Warning: `guides(<scale> = FALSE)` is deprecated. Please use `guides(<scale> =
+#> "none")` instead.
+
+```
+
+
+
+
 ```{r}
 #selecting a subset of the data as ecotyper will only accept files up to 200kb in size                                     
 TCGA_OV_tpm_hgnc <- TCGA_OV_tpm %>% 
