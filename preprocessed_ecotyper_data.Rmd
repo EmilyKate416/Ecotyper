@@ -68,7 +68,7 @@ variants <-TCGA_OV_tpm %>%
  
 ```
 
-```{r summing up the TPM of different transcripts for each each }
+```{r summing up the TPM of different transcripts for each gene, eval=FALSE, include=FALSE }
 #collapse each row with duplicate transcripts into a single row with the sum of all the transcripts as EcoTyper cannot accept duplicate names 
   collapsed <- TCGA_OV_tpm_coding %>% 
     dplyr::select(-id,
@@ -79,12 +79,12 @@ variants <-TCGA_OV_tpm %>%
                   -havana_transcript_id_version,
            -unknown_number, 
            -transcript_type) %>% 
-     group_by(TCGA_OV_tpm_coding$hgnc_symbol)# %>% 
-     summarise_all(funs(sum))#%>% 
+     group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>% 
+     summarise_all(funs()=sum())#%>% 
     #write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t")
 ```
 
-```{r or taking the median TPM of transcript versions}
+```{r or taking the median TPM of transcript versions,eval=FALSE, include=FALSE}
 huh <-TCGA_OV_tpm_coding %>% dplyr::select(-id,
                   -hgnc_trans_name, 
                   -ensembl_transcript_id_version, 
@@ -135,6 +135,8 @@ dim(tpm)
 #To calculate Laplace entropy, where values are normalized between 0 and 1, use:
 library(SplicingFactory)
 library(SummarizedExperiment)
+
+#the gini index and the laplace entropy reflect transcript diversity 
 
 laplace_entropy <- calculate_diversity(tpm, genes$hgnc_symbol, method = "laplace", #not sure if I can perform this on TPM
                                        norm = FALSE, verbose = TRUE)
@@ -219,14 +221,55 @@ ggplot() +
 ```
 
 
+```{r}
+# Mean entropy calculation across samples for each gene/sample type combination
+laplace_entropy_mean <- aggregate(laplace_data$entropy,
+                                  by = list(laplace_data$Gene), mean)
+colnames(laplace_entropy_mean)[2] <- "mean_entropy"
+laplace_entropy_mean <- as_tibble(laplace_entropy_mean)
+
+# Add sample type information
+laplace_entropy_mean$sample_type <- apply(laplace_entropy_mean[, 1], 1,
+                                          function(x) ifelse(grepl("_Normal", x),
+                                                             "Normal", "Tumor"))
+
+# Add diversity type column
+laplace_entropy_mean$diversity <-  "Normalized Laplace entropy"
+
+# Mean gini calculation across samples for each gene/sample type combination
+gini_mean <- aggregate(gini_data$gini, by = list(gini_data$Gene), mean)
+colnames(gini_mean)[2] <- "mean_gini"
+gini_mean <- as_tibble(gini_mean)
+
+# Add sample type information
+gini_mean$sample_type <- apply(gini_mean[, 1], 1,
+                               function(x) ifelse(grepl("_Normal", x),
+                                                  "Normal", "Tumor"))
+
+# Add diversity type column
+gini_mean$diversity <-  "Gini index"
+
+ggplot() +
+  geom_violin(data = laplace_entropy_mean, aes(x = sample_type, y = mean_entropy,
+                                               fill = diversity),
+              alpha = 0.6) +
+  geom_violin(data = gini_mean, aes(x = sample_type, y = mean_gini,
+                                    fill = diversity),
+              alpha = 0.6) +
+  scale_fill_viridis_d(name = "Diversity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Samples",
+       y = "Diversity")
+```
 
 
 ```{r}
 #selecting a subset of the data as ecotyper will only accept files up to 200kb in size                                     
-TCGA_OV_tpm_hgnc <- TCGA_OV_tpm %>% 
-  select(-"id",-"1",-"2",-"3",-"4",-"6",-"7",-"8") %>% 
-  select(1:110) %>% 
-  write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t") 
+#TCGA_OV_tpm_hgnc <- TCGA_OV_tpm %>% 
+#  select(-"id",-"1",-"2",-"3",-"4",-"6",-"7",-"8") %>% 
+ # select(1:110) %>% 
+ # write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t") 
 ```
 
 ```{r}
