@@ -61,6 +61,8 @@ variants <-TCGA_OV_tpm %>%
    filter(transcript_type=='protein_coding') #shrinks from 199169 to 79930 rows with transcript variants from 19594 genes
  
 # (Intron retention (IR) is an alternative splicing mode whereby introns, rather than being spliced out as usual, are retained in mature mRNAs. Nonsense mediated decay reduces errors in gene expression by eliminating mRNA transcripts that contain premature stop codons.).
+ TCGA_OV_tpm_coding %>%  
+   summarise(distinct_genes = n_distinct(hgnc_symbol)) #19594 genes 
  
  variants_2 <- TCGA_OV_tpm_coding %>%  # taking a look at which genes have multiple transcript versions 
    group_by(hgnc_symbol) %>% 
@@ -80,12 +82,13 @@ variants <-TCGA_OV_tpm %>%
            -unknown_number, 
            -transcript_type) %>% 
      group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>% 
-     summarise_all(funs()=sum())#%>% 
+      summarise(across(!c(hgnc_symbol), sum))#%>% 
     #write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t")
 ```
 
 ```{r or taking the median TPM of transcript versions,eval=FALSE, include=FALSE}
-huh <-TCGA_OV_tpm_coding %>% dplyr::select(-id,
+huh <-TCGA_OV_tpm_coding %>%
+  dplyr::select(-id,
                   -hgnc_trans_name, 
                   -ensembl_transcript_id_version, 
                   -ensembl_gene_id_version, 
@@ -93,14 +96,16 @@ huh <-TCGA_OV_tpm_coding %>% dplyr::select(-id,
                   -havana_transcript_id_version,
            -unknown_number, 
            -transcript_type) %>% 
-  group_by(hgnc_symbol) %>%
-  summarise(across( funs(mean(., na.rm=TRUE))))
+  group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>%
+   summarise(across(where(is.numeric),list(median = median)))
+
+write_delim(huh, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_2_median_all.tsv", delim="\t")
 ```
 
 SplicingFactory is an R package for the analysis of alternative splicing isoform diversity. The package provides the ability to generate gene-level Shannon-entropy values and other diversity measures, such as the Gini- or Simpson-index. These measures can quantify transcript isoform diversity within samples or between conditions. Additionally, the package analyzes the isoform diversity data, looking for significant changes between conditions. A basic task during analysis is to use read counts or TPM to calculate a diversity measure and then perform a differential analysis to identify genes with a significant change between conditions. 
 https://bioconductor.org/packages/devel/bioc/vignettes/SplicingFactory/inst/doc/SplicingFactory.html#data-filtering-and-preprocessing
 
-```{r SplicingFactory to look at transcriptisoforms}
+```{r SplicingFactory to look at transcript isoforms}
 
 # Extract gene names
 genes <- TCGA_OV_tpm_coding[, "hgnc_symbol"]
