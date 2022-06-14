@@ -26,7 +26,7 @@ library(readr)
 #The IDs used in the TCGA matrices are CGHubAnalysisIDs, which you can't search on the Genomic Data Commons. If you want to change these IDs to something else, you can use map_TCGA_id.py and TCGA_ID_MAP.csv to change them to Aliquot Barcodes or Aliquot ID's, just know that neither of these two identifiers are unique.
 
 #note The 'havana_gene' and 'havana_transcript' attributes indicate the internal gene and transcript stable ids used by Havana and are also the main identifiers in the (now archived) Vega genome browser.They start with 'OTTHUM' and 'OTTMUS' for human and mouse respectively.
-TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/TCGA_OV_tpm.tsv", 
+TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/TCGA_OV_tpm.tsv", 
     delim = "\t", escape_double = FALSE, 
     trim_ws = TRUE) %>% 
  rename(id=...1) %>% #rename the first column 
@@ -99,7 +99,7 @@ huh <-TCGA_OV_tpm_coding %>%
   group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>%
    summarise(across(where(is.numeric),list(median = median)))
 
-write_delim(huh, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_2_median_all.tsv", delim="\t")
+write_delim(huh, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/tatlow_picollo_2016_for_ecotyper_2_median_all.tsv", delim="\t")
 ```
 
 SplicingFactory is an R package for the analysis of alternative splicing isoform diversity. The package provides the ability to generate gene-level Shannon-entropy values and other diversity measures, such as the Gini- or Simpson-index. These measures can quantify transcript isoform diversity within samples or between conditions. Additionally, the package analyzes the isoform diversity data, looking for significant changes between conditions. A basic task during analysis is to use read counts or TPM to calculate a diversity measure and then perform a differential analysis to identify genes with a significant change between conditions. 

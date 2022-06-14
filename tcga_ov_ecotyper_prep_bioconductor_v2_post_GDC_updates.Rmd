@@ -273,7 +273,9 @@ query <- GDCquery(project = "TCGA-OV",
 
 ))
 GDCdownload(query)
-counts <- GDCprepare(query) %>% 
+
+results <- getResults(query)
+counts <- GDCprepare(query) #%>% 
     rename(ensembl_gene_id_version = X1) #rename to match ensemble biomart notation
 
 #or experimenting how to combine the files from a manifest download into matrix
