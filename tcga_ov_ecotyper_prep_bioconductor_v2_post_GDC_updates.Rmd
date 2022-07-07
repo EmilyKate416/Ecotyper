@@ -48,6 +48,8 @@ head(clinical)
 #attempt to use legacy data:
 #https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/query.html#Gene_expression
 
+#TCGAbiolinks uses three main functions GDCquery, GDCdownload and GDCprepare. GDCquery utilises the GDC API to search the data for named project and data category, filtering the results by user specified features and returning a searchable table summarising the files and samples available for that query (Health et al. 2016). A specific query can then be downloaded via the GDC API or GDC client tools (as shown here) using GDCdownload, and GDCprepare then converts the datasets to a summarized experiment object. 
+
 query.legacy <- GDCquery(
     project = "TCGA-OV",
     data.category = "Gene expression",
@@ -156,21 +158,40 @@ query.legacy <- GDCquery(
 "TCGA-24-2024-01A"),
     legacy = TRUE
 )
-GDCdownload(query.legacy)
-test <- GDCprepare(query.legacy)
 
-DT::datatable(getResults(query, rows = 1:100), 
+```
+
+```{r}
+GDCdownload(query.legacy) #uses either the GDC API to download the samples, or the gdc client tools. The downloaded data will be saved in a directory with the project name and a sub-folder with the data.category
+test <- GDCprepare(query.legacy)
+                  # save = TRUE,
+                 #  save.filename = "tcga_ov.rda" ,
+                  # summarizedExperiment = TRUE)  #transforms the downloaded data into a summarizedExperiment object or a data frame. If SummarizedExperiment is set to TRUE, TCGAbiolinks will add to the object sub-type information and clinical information.
+
+
+DT::datatable(getResults(query.legacy, rows = 1:100), 
     filter = 'top',
     options = list(scrollX = TRUE, keys = TRUE, pageLength = 5), 
     rownames = FALSE)
 
-getManifest(query.legacy,save = TRUE) #If you want to get the manifest file from the query object you can use the function getManifest. If you set save to TRUEm a txt file that can be used with GDC-client Data transfer tool (DTT) or with its GUI version ddt-ui will be created.
 
+#getManifest(query.legacy,save = TRUE) #If you want to get the manifest file from the query object you can use the function getManifest. If you set save to TRUEm a txt file that can be used with GDC-client Data transfer tool (DTT) or with its GUI version ddt-ui will be created.
+```
+```{r}
 #non legacy
 query <- GDCquery(project = "TCGA-OV", 
                   data.category = "Transcriptome Profiling", 
                   data.type = "Gene Expression Quantification", 
-                  workflow.type = "STAR - Counts", #or FPKM - A normalized expression value that takes into account each gene length and the number of reads mapped to all protein-coding genes
+                  workflow.type = "STAR - Counts")#, #or FPKM - A normalized expression value that takes into account each gene length and the number of reads mapped to all protein-coding genes
+
+```
+
+```{r}
+#or if you wanted to specify particular patients add this into the GDCquery command
+query <- GDCquery(project = "TCGA-OV", 
+                  data.category = "Transcriptome Profiling", 
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "STAR - Counts",
                   barcode =  c("TCGA-10-0927-01A", # list of patient barcodes to download data for
 "TCGA-13-0891-01A",
 "TCGA-23-1028-01A",
@@ -272,29 +293,94 @@ query <- GDCquery(project = "TCGA-OV",
 "TCGA-24-2024-01A"
 
 ))
-GDCdownload(query)
+```
 
+```{r}
+
+GDCdownload(query) 
+# downloads individual files and manifest file, The downloaded data will be saved in a directory with the project name and a sub-folder with the data.category
+```
+
+```{r}
+#searchable datatable summarising files available 
 results <- getResults(query)
+
+```
+
+```{r}
+#GDCprepare transforms the downloaded data into a summarizedExperiment object or a data frame
+# Prepare expression matrix with geneID in the rows and samples (barcode) in the columns
 counts <- GDCprepare(query) #%>% 
-    rename(ensembl_gene_id_version = X1) #rename to match ensemble biomart notation
-
-#or experimenting how to combine the files from a manifest download into matrix
-GDCRNATools::gdcRNADownload(project.id = "TCGA-OV", data.type="RNAseq")
-metaMatrix <- GDCRNATools::gdcParseMetadata(project.id='TCGA-OV',
-data.type='RNAseq')
-
-rnaExpr <- GDCRNATools::gdcRNAMerge(metadata=metaMatrix, path='RNAseq/', data.type='RNAseq')
+   # rename(ensembl_gene_id_version = X1) #rename to match ensemble biomart notation
 
 
 ```
+Available assays in SummarizedExperiment : 
+  => unstranded
+  => stranded_first
+  => stranded_second
+  => tpm_unstrand
+  => fpkm_unstrand
+  => fpkm_uq_unstrand
+  
+#If a summarizedExperiment object was chosen, the data can be accessed with three different accessors: assay for the data information, rowRanges to gets the range of values in each row and colData to get the sample information (patient, batch, sample type, etc)
 
 ```{r}
-head(counts)
+library(SummarizedExperiment) 
+# get expression matrix
+data <- assay(counts, "tpm_unstrand") %>% as.data.frame() %>% rownames_to_column("gene_id")
+
+data<- rownames_to_column(as.data.frame(data.brca), "gene_id")
+# get genes information
+genes.info <- as.data.frame(rowRanges(counts))  #table 
+
+# get sample information
+sample.info <- as.data.frame(colData(counts))
 ```
 
+
 ```{r}
-write_delim(counts, file="tcga-ov-first100.tsv", delim="\t") #write into tab delimited file
+dataPrep <- TCGAanalyze_Preprocessing( #performs array array intensity correlation to check for outliers
+    object = counts, 
+    cor.cut = 0.6,
+    datatype = "tpm_unstrand"
+)     
+
+
 ```
+```{r}
+genes.info.hgnc <- genes.info %>% dplyr::select(gene_id, gene_name)
+
+hugo_tcga <- left_join(data, genes.info.hgnc) %>% 
+  group_by(gene_name) %>% 
+  summarise(across(where(is.numeric),list(median = median)))
+
+write_delim(hugo_tcga, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/TCGA_stratification/hugo_tcga_all_samples_060722.tsv", delim="\t")
+```
+
+Downstream analysis from https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/analysis.html
+```{r}
+samplesDown <- getResults(query,cols=c("cases")) # takes just the column called cases with the TCGA barcodes for the samples
+
+dataSmTP <- TCGAquery_SampleTypes( ## selection of tumor samples "TP"
+    barcode = samplesDown,
+    typesample = "TP"
+)
+
+dataPrep <- TCGAanalyze_Preprocessing(
+    object = query, 
+    cor.cut = 0.6,
+    datatype = "HTSeq - Counts"
+)                 
+dataNorm <- TCGAanalyze_Normalization(
+    tabDF = dataPrep,
+    geneInfo = geneInfoHT,
+    method = "gcContent"
+) 
+
+boxplot(dataPrep, outline = FALSE)
+```
+
 
 Biomart: retrieve HUGO gene symbols
 ```{r}

@@ -1,0 +1,245 @@
+---
+title: "exploring_mutations_tcga-ov"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, load required packages}
+
+suppressMessages({
+    library(TCGAbiolinks)
+    library(MultiAssayExperiment)
+    library(maftools)
+    library(dplyr)
+    library(ComplexHeatmap)
+    library(readr)
+    library(biomaRt)
+  library(GenomicDataCommons)
+})
+```
+
+
+
+```{r accessing mutation data for the TCGA-OV cohort}
+query.mut <- GDCquery(
+    project = "TCGA-OV", 
+    data.category = "Simple Nucleotide Variation", 
+    access = "open", 
+    legacy = FALSE, 
+    data.type = "Masked Somatic Mutation", 
+    workflow.type = "Aliquot Ensemble Somatic Variant Merging and Masking"
+)
+GDCdownload(query.mut)
+maf <- GDCprepare(query.mut) %>% 
+  clean_names() # all mutations SNV for this cohort are conatined within maf
+```
+```{r}
+#select cases with somatic or germline BRCA1/2 mutations n=30, 16 of these are also present in the cohort with RNAseq data
+brca <- maf %>% dplyr::filter(hugo_symbol=="BRCA1"|hugo_symbol=="BRCA2")
+```
+```{r}
+brca_barcode <- brca$tumor_sample_barcode
+```
+
+```{r}
+#16 cases with somatic BRCA1/2 mutation and RNAseq data available 
+setwd("/home/lythgo02/ecotyper/downloading_ecotyper_data/TCGA_stratification/brca")
+query.brca <- GDCquery(project = "TCGA-OV", 
+                  data.category = "Transcriptome Profiling", 
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "STAR - Counts",
+                  barcode =  c("TCGA-13-1489",
+                               "TCGA-29-1693",
+                               "TCGA-24-1847",
+                               "TCGA-30-1857",
+                               "TCGA-61-1914", 
+                               "TCGA-24-2035",
+                               "TCGA-24-1846",
+                               "TCGA-20-1682",
+                               "TCGA-61-1737",
+                               "TCGA-24-1103",
+                               "TCGA-29-1762",
+                               "TCGA-04-1357",
+                               "TCGA-29-2427",
+                               "TCGA-13-1489",
+                               "TCGA-29-1768",
+                               "TCGA-29-1776")) # list of patient barcodes to download data for
+ 
+GDCdownload(query.brca) 
+brca_counts <- GDCprepare(query.brca) 
+```
+
+```{r}
+library(SummarizedExperiment) 
+# get expression matrix
+data.brca <- assay(brca_counts, "tpm_unstrand") 
+data.brca <- rownames_to_column(as.data.frame(data.brca), "gene_id")
+
+# get genes information
+genes.info.brca <- as.data.frame(rowRanges(brca_counts))  #table 
+
+# get sample information
+sample.info.brca <- as.data.frame(colData(brca_counts))
+```
+
+```{r}
+genes.info.brca.hugo <- genes.info.brca %>% dplyr::select(gene_id, gene_name)
+
+hugo_brca <- left_join(data.brca, genes.info.brca.hugo) %>% 
+  group_by(gene_name) %>% 
+  summarise(across(where(is.numeric),list(median = median)))
+
+write_delim(hugo_brca, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/TCGA_stratification/brca/hugo.brca.tsv", delim="\t")
+```
+
+```{r}
+#load ecotyper reslts from analysis of whole cohort
+ecotype_assignment <- read_delim("~/ecotyper/downloading_ecotyper_data/TCGA_stratification/hugo_tcgca_all_samples_060722_ecotyper_output/hugo_tcga_all_samples_060722/Ecotypes/ecotype_assignment.txt", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE) %>% 
+  clean_names() %>% 
+  dplyr::rename(assigned_ce=assignment_p)
+
+```
+```{r}
+#table of total samples assigned to each ecotype from my analysis
+counts_per_ecotype <- ecotype_assignment %>% 
+  group_by(assigned_ce) %>% 
+  tally() 
+
+newrow <- c("Unassigned", 124) # check the number is correct
+counts_per_ecotype <- rbind(counts_per_ecotype, newrow) 
+counts_per_ecotype$n <- as.numeric(counts_per_ecotype$n) # converting back to numeric as adding the new "unassigned" row converts to character
+proportions_per_ecotype <-  counts_per_ecotype %>%  adorn_percentages("col") # convert counts to percentages
+  
+tcga_ov <- ggplot(proportions_per_ecotype, aes(x=assigned_ce, y=n, fill=assigned_ce)) +
+  geom_col() +
+  theme_bw() + 
+  xlab("Carcinoma Ecotype") + 
+  ylab("%") +
+  ggtitle("My analysis: n= OV samples analysed") +
+  theme(legend.position = "none")
+
+```
+```{r}
+#convert ID to same format as in hugo_brca table
+ecotype_assignment$id <- str_replace_all(ecotype_assignment$id, "\\.", "-")
+ecotype_assignment$id <- str_trunc(ecotype_assignment$id, 15)
+ecotype_assignment$id <- str_replace_all(ecotype_assignment$id, "\\...", "")
+```
+```{r}
+
+brca_eco_assignment <- ecotype_assignment %>% dplyr::filter(id=="TCGA-13-1489"|
+                               id=="TCGA-29-1693"|
+                               id=="TCGA-24-1847"|
+                               id=="TCGA-30-1857"|
+                               id=="TCGA-61-1914"| 
+                               id=="TCGA-24-2035"|
+                               id=="TCGA-24-1846"|
+                               id=="TCGA-20-1682"|
+                               id=="TCGA-61-1737"|
+                               id=="TCGA-24-1103"|
+                               id=="TCGA-29-1762"|
+                               id=="TCGA-04-1357"|
+                               id=="TCGA-29-2427"|
+                               id=="TCGA-13-1489"|
+                               id=="TCGA-29-1768"|
+                               id=="TCGA-29-1776")
+
+```
+
+```{r}
+#table of total samples assigned to each ecotype from my analysis
+brca_counts_per_ecotype <- brca_eco_assignment %>% 
+  group_by(assigned_ce) %>% 
+  tally() 
+
+newrow <- c("Unassigned", 2) # check the number is correct
+brca_counts_per_ecotype <- rbind(brca_counts_per_ecotype, newrow) 
+brca_counts_per_ecotype$n <- as.numeric(brca_counts_per_ecotype$n) # converting back to numeric as adding the new "unassigned" row converts to character
+#brca_proportions_per_ecotype <-  brca_counts_per_ecotype %>%  adorn_percentages("col") # convert counts to percentages
+  
+tcga_brca_ov <- ggplot(brca_counts_per_ecotype, aes(x=assigned_ce, y=n, fill=assigned_ce)) +
+  geom_col() +
+  theme_bw() + 
+  xlab("Carcinoma Ecotype") + 
+  ylab("Counts") +
+  ggtitle("Somatic mutation in BRCA1/2 cohort n=16 ") +
+  theme(legend.position = "none")
+```
+
+```{r}
+#use Ruben's analysis from "Pancancer compendium of chromosomal instability" Nature 2022 to classify cases as HRD negative or positive based on Myriad mychoice result. (Later build a classifier combining CX3/CX2 threshold and Myriad results).
+ruben <-read_excel("/home/lythgo02/ecotyper/CNS_for_ecotyper/Copy of Supplementary Tables 58-64 Ruben CX.xlsx", 
+    sheet = "ST_58_Clinical_data_TCGA-OV") %>% 
+  clean_names() %>% 
+  dplyr::rename(id=name)
+
+myriad_pos <- ruben %>%  dplyr::filter(myriadmy_choice == "Positive") # HRD
+myriad_neg<- ruben %>%  dplyr::filter(myriadmy_choice == "Negative")  # HRP
+myriad_na<- ruben %>%  dplyr::filter(myriadmy_choice == "NA")
+
+#pull out the cases with HRD according to myriad mychoice result (positive)
+
+ecotype_assignment_HRD <- merge(ecotype_assignment, myriad_pos)
+ecotype_assignment_HRP <- merge(ecotype_assignment, myriad_neg)
+ecotype_assignment_NA <- merge(ecotype_assignment, myriad_na)
+
+```
+
+```{r}
+#for ecotyper
+
+ecotyper_input_HRD <- merge(myriad_pos, )
+```
+
+
+```{r}
+HRD_counts_per_ecotype <- ecotype_assignment_HRD %>% 
+  group_by(assigned_ce) %>% 
+  tally() 
+
+#HRD_counts_per_ecotype <- rbind(HRD_counts_per_ecotype, newrow) 
+HRD_counts_per_ecotype$n <- as.numeric(HRD_counts_per_ecotype$n) # converting back to numeric as adding the new "unassigned" row converts to character
+HRD_proportions_per_ecotype <-  HRD_counts_per_ecotype %>%  adorn_percentages("col")  %>% mutate(percentage=n*100)# convert counts to percentages
+  
+tcga_HRD_ov <- ggplot(HRD_proportions_per_ecotype, aes(x=assigned_ce, y=percentage, fill=assigned_ce)) +
+  geom_col() +
+  theme_bw() + 
+  xlab("Carcinoma Ecotype") + 
+  ylab("%") +
+  ggtitle("HRD cohort n=183 ") +
+  theme(legend.position = "none")
+tcga_HRD_ov
+
+
+HRP_counts_per_ecotype <- ecotype_assignment_HRP %>% 
+  group_by(assigned_ce) %>% 
+  tally() 
+
+#HRD_counts_per_ecotype <- rbind(HRD_counts_per_ecotype, newrow) 
+HRP_counts_per_ecotype$n <- as.numeric(HRP_counts_per_ecotype$n) # converting back to numeric as adding the new "unassigned" row converts to character
+HRP_proportions_per_ecotype <-  HRP_counts_per_ecotype %>%  adorn_percentages("col")  %>% mutate(percentage=n*100)# convert counts to percentages
+  
+tcga_HRP_ov <- ggplot(HRP_proportions_per_ecotype, aes(x=assigned_ce, y=percentage, fill=assigned_ce)) +
+  geom_col() +
+  theme_bw() + 
+  xlab("Carcinoma Ecotype") + 
+  ylab("%") +
+  ggtitle("HRP cohort n=82 ") +
+  theme(legend.position = "none")
+
+gridExtra::grid.arrange(tcga_HRD_ov, tcga_HRP_ov)
+
+
+```
+```{r}
+
+```
+
+
+

@@ -18,7 +18,7 @@ setwd("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016
 
 ```{r load the results from my ecotyper analysis}
 #preprocessed data from Tatlow and Picollo 2016 including all transcripts (not protein coding only) with transcript isoforms collapsed to median per gene
-ecotype_assignment_3_median_all <- read_delim("Tatlow_and_Piccolo_2016/ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_3_median_all/tatlow_picollo_2016_for_ecotyper_3_median_all_transcripts/Ecotypes/ecotype_assignment.txt", 
+ecotype_assignment_3_median_all <- read_delim("ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_3_median_all/tatlow_picollo_2016_for_ecotyper_3_median_all_transcripts/B.cells/state_abundances.txt", 
      delim = "\t", escape_double = FALSE, 
      trim_ws = TRUE) %>% 
   clean_names() %>% 
