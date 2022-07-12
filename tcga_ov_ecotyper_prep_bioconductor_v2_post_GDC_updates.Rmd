@@ -330,7 +330,7 @@ library(SummarizedExperiment)
 # get expression matrix
 data <- assay(counts, "tpm_unstrand") %>% as.data.frame() %>% rownames_to_column("gene_id")
 
-data<- rownames_to_column(as.data.frame(data.brca), "gene_id")
+
 # get genes information
 genes.info <- as.data.frame(rowRanges(counts))  #table 
 

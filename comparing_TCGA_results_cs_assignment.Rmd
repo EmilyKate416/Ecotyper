@@ -18,10 +18,14 @@ setwd("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016
 
 ```{r load the results from my ecotyper analysis}
 #preprocessed data from Tatlow and Picollo 2016 including all transcripts (not protein coding only) with transcript isoforms collapsed to median per gene
-ecotype_assignment_3_median_all <- read_delim("ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_3_median_all/tatlow_picollo_2016_for_ecotyper_3_median_all_transcripts/B.cells/state_abundances.txt", 
-     delim = "\t", escape_double = FALSE, 
-     trim_ws = TRUE) %>% 
-  clean_names() %>% 
+#ecotype_assignment_3_median_all <- read_delim("ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_3_median_all/tatlow_picollo_2016_for_ecotyper_3_median_all_transcripts/Ecotypes/ecotype_assignment.txt", 
+    # delim = "\t", escape_double = FALSE, 
+    # trim_ws = TRUE) %>% 
+  
+ecotype_assignment_3_median_all <- read_delim("Tatlow_and_Piccolo_2016/ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_3_median_all/tatlow_picollo_2016_for_ecotyper_3_median_all_transcripts/Ecotypes/ecotype_assignment.txt", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE) %>% 
+  clean_names()  %>% 
   dplyr::rename(assigned_ce = assignment_p)
 
 ```
@@ -68,46 +72,98 @@ counts_per_ecotype_EL <- ecotype_assignment_3_median_all %>%
 newrow <- c("Unassigned", 126) # check the number is correct
 counts_per_ecotype_EL <- rbind(counts_per_ecotype_EL, newrow) 
 counts_per_ecotype_EL$my_analysis <- as.numeric(counts_per_ecotype_EL$my_analysis) # converting back to numeric as adding the new "unassigned" row converts to character
-proportions_per_ecotype_EL <-  counts_per_ecotype_EL %>%  adorn_percentages("col") # convert counts to percentages
+proportions_per_ecotype_EL <-  counts_per_ecotype_EL %>%  adorn_percentages("col") %>% mutate(percentage=my_analysis*100) # convert counts to percentages
   
-EL <- ggplot(proportions_per_ecotype_EL, aes(x=assigned_ce, y=my_analysis, fill=assigned_ce)) +
-  geom_col() +
+EL <- ggplot(proportions_per_ecotype_EL, aes(x=assigned_ce, y=percentage)) +
+  #geom_col() +
+  geom_bar(stat = "identity", fill="lightblue")+  
+  scale_x_discrete(limits = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10"))+
   theme_bw() + 
   xlab("Carcinoma Ecotype") + 
   ylab("%") +
-  ggtitle("My analysis: n=430 OV samples analysed") +
-  theme(legend.position = "none")
+  ggtitle("My analysis n=304") + # 430 samples analysed
+ # theme(legend.position = "none") +
+    theme(text=element_text(size=10), #change font size of all text
+        axis.text=element_text(size=10, face="bold"), #change font size of axis text
+        axis.title=element_text(size=12, face="bold"), #change font size of axis titles
+        plot.title=element_text(size=12, face="bold", vjust=2), #change font size of plot title
+        legend.text=element_text(size=10), #change font size of legend text
+        legend.title=element_text(size=10), #change font size of legend title      
+        axis.title.x=element_blank(),
+        axis.title.y = element_text(size = 10,vjust =1, face="bold"),
+        axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(), #  remove grid lines
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank()) + 
+        scale_y_continuous(expand = c(0,0.5))
+  #scale_color_hue(c=30, l=80) 
+ # theme(axis.text.x = element_text(hjust = -1))
+ # theme_minimal()
+
 
 proportions_per_ecotype_author <- author_ecotype_abundances_mapped %>% 
   group_by(assigned_ce) %>% 
   tally() %>% 
   dplyr::rename(author_analysis = n) %>% 
-  adorn_percentages("col") # convert counts to percentages
+  adorn_percentages("col") %>% mutate(percentage=author_analysis*100) # convert counts to percentages
 
-author <- ggplot(proportions_per_ecotype_author, aes(x=assigned_ce, y=author_analysis, fill=assigned_ce)) +
-  geom_col() +
+author <- ggplot(proportions_per_ecotype_author, aes(x=assigned_ce, y=percentage)) +
+  geom_bar(stat = "identity", fill="lightblue") +
+   scale_x_discrete(limits = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10"))+
   theme_bw() + 
   xlab("Carcinoma Ecotype") + 
   ylab("%") +
-  ggtitle("Luca et al., 2021 analysis: n=266 OV samples analysed") +
-  theme(legend.position = "none")
+  ggtitle("Luca et al., 2021 analysis n=266") + #266 samples analysed 
+ # theme(legend.position = "none") +
+  theme(text=element_text(size=10), #change font size of all text
+        axis.text=element_text(size=10, face="bold"), #change font size of axis text
+        axis.title=element_text(size=12, face="bold", vjust = 2), #change font size of axis titles
+        plot.title=element_text(size=12, face="bold", vjust=2), #change font size of plot title
+        legend.text=element_text(size=10), #change font size of legend text
+        #axis.title.x  = element_text(size = 12,vjust =1),
+       # axis.title.y = element_text(size = 12,vjust =1),
+        axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(), #  remove grid lines
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank()) + 
+        scale_y_continuous(expand = c(0,0.5))
+  #scale_color_hue(c=30, l=80) 
+ # theme_minimal()
+
 
 gridExtra::grid.arrange(EL, author)
 ```
 
 ```{r a different way to create the same graph}
 
-proportions_per_ecotype_combined <- full_join(proportions_per_ecotype_author, proportions_per_ecotype_EL)
+proportions_per_ecotype_author <- proportions_per_ecotype_author %>% dplyr::select(-percentage)
+proportions_per_ecotype_EL <- proportions_per_ecotype_EL %>% dplyr::select(-percentage)
 
+proportions_per_ecotype_combined <- full_join(proportions_per_ecotype_author, proportions_per_ecotype_EL)
+```
+```{r}
 #need to make long data wide and then plot on the same graph
 
 library(reshape2)
 # reshape data from wide to long format
-long <- melt(proportions_per_ecotype_combined, c("assigned_ce")) %>% dplyr::rename(proportion=value)
-long$proportion <-as.numeric(long$proportion)
+long <- melt(proportions_per_ecotype_combined, c("assigned_ce")) %>% 
+  dplyr::rename(proportion=value) %>% 
+  mutate(percentage=proportion*100)
+long$percentage <-as.numeric(long$percentage)
   
-ggplot(long, aes(assigned_ce, proportion, fill=variable, color = variable)) + 
-   geom_col(position = "dodge")
+ggplot(long, aes(x=assigned_ce, y=percentage, fill=variable, color=variable)) +
+  geom_bar(stat="identity", position="dodge")+
+  scale_x_discrete(limits = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10"))+
+  theme(text=element_text(size=10), #change font size of all text
+        axis.text=element_text(size=8), #change font size of axis text
+        axis.title=element_text(size=10), #change font size of axis titles
+        plot.title=element_text(size=10), #change font size of plot title
+        legend.text=element_text(size=10), #change font size of legend text
+        legend.title=element_text(size=10))+ #change font size of legend title  +    
+  scale_color_hue(c=30, l=80) +
+  theme_bw() + 
+  xlab("Carcinoma Ecotype") + 
+  ylab("%")
 ```
 
 ```{r identifying OV samples shared between my analysis and the author's analysis}
@@ -166,7 +222,7 @@ eco_abund_EL_long_filtered <- eco_abund_EL_long_filtered %>%  column_to_rownames
 
 ```{r for loop for analysis, warning=FALSE}
 
-#expected <- (round(author_abundances_filtered*100) +1) %>% write_csv("expected.csv")
+expected <- (round(author_abundances_filtered*100) +1) %>% write_csv("expected.csv")
 
 observed <- (round(eco_abund_EL_long_filtered *100)+1) %>% write_csv("observed.csv")
 
@@ -232,7 +288,7 @@ results_pc <- rbind(results_pc, chisq.test(x=observed_vector, p=expected_proport
 ```
 
 ```{r}
-results <- as.tibble(results) %>%  clean_names() %>% mutate(type="results")
+results <- as_tibble(results) %>%  clean_names() %>% mutate(type="results")
 results$p_value <- as.numeric(results$p_value)
 #This function allows one to view a histogram of the p-values along with line plots of the q-values and local FDR values versus p-values. The pi_0 estimate is also displayed.
 qobj <- qvalue(results$p_value)
@@ -241,7 +297,7 @@ hist(qobj)
 ```
 
 ```{r histogram compairing protein coding vs whole genome results}
-
+#results <- as.tibble(results) %>%  clean_names() %>% mutate(type="results")
 results_pc <- as.tibble(results_pc) %>%  clean_names() %>% mutate(type="results_pc")
 both_results <- rbind(results, results_pc)
 both_results$p_value <- as.numeric(both_results$p_value)
@@ -250,11 +306,31 @@ labels <- c(results = "All Transcript Types", results_pc = "Protein Coding Trans
 
 ggplot(both_results) +
   geom_histogram(aes(x = p_value),
-                 color = "black", fill = "grey") +
-  facet_wrap(vars(type), labeller=labeller(type = labels)) + # separate plots
-  theme_bw(base_size = 12)
-
-
+                 color = "lightblue", fill = "lightblue") +
+  facet_wrap(vars(type),
+            # strip.position = "top",
+             labeller=labeller(type = labels)) + # separate plots
+   xlab("p value") + 
+ # ylab("Count") +
+  theme_minimal(base_size = 12) +
+  theme(panel.background = element_rect(fill = 'white'), # change the colur of the background
+        strip.background = element_rect(fill="white") , 
+        strip.placement  = "inside" , # outside to place below
+        strip.text = element_text(size = 10, face="bold"),
+        panel.grid.major = element_blank(), #  remove grid lines
+        panel.grid.minor = element_blank(), 
+      #  axis.line = element_line(colour = "black"),
+        axis.title.y = element_text(size = 10,vjust =3, face="bold"),
+        axis.title.x = element_text(size = 10,vjust =1, face="bold"),
+        text=element_text(size=10), #change font size of all text
+        axis.text=element_text(size=10, face="bold"), #change font size of axis text
+        axis.text.y = element_blank(),
+        axis.title=element_text(size=10, face="bold"), #change font size of axis title
+        legend.text=element_text(size=10, face="bold"), #change font size of legend text
+        legend.title=element_text(size=10, face="bold") ,
+         panel.border = element_blank()) +
+  scale_y_continuous(expand = c(0,0.7))
+ 
 
 ```
 
