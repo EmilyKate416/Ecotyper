@@ -1,0 +1,283 @@
+---
+title: "TCGA-OV preprocessed from  Tatlow and Piccolo, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readr)
+```
+
+
+```{r loading the data}
+#using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
+#TCGA_OV_tpm.tsv.gz from https://osf.io/64ts9/ 
+
+#In coordination with the Institute for Systems Biology (ISB)34, Tatlow and Piccolo used Google Cloud Platform to process 12,307 RNA-Sequencing samples from the CCLE and TCGA projects. After preprocessing, they aligned sequencing reads to the most current GENCODE reference transcriptome (see Methods) and calculated transcript-expression levels using kallisto, a pseudoalignment and read-quantification program.
+#The TCGA samples were available in FASTQ format; therefore, they did not need to sort or convert the data. For sample preprocessing, the FASTQ files were unpacked, decompressed, and quality trimmed
+#kallisto is a program for quantifying abundances of transcripts from bulk and single-cell RNA-Seq data, or more generally of target sequences using high-throughput sequencing reads. It is based on the novel idea of pseudoalignment for rapidly determining the compatibility of reads with targets, without the need for alignment.
+#The FASTQ files were used as input to kallisto (version 0.43.0)35, which pseudoaligned the reads to the GENCODE reference transcriptome (version 24)59 and quantified transcript-expression levels.
+#deposited the processed data—as read counts and transcripts per million—in tabular format and in Google’s BigQuery database (see https://osf.io/gqrz9), output of kallisto
+
+#The IDs used in the TCGA matrices are CGHubAnalysisIDs, which you can't search on the Genomic Data Commons. If you want to change these IDs to something else, you can use map_TCGA_id.py and TCGA_ID_MAP.csv to change them to Aliquot Barcodes or Aliquot ID's, just know that neither of these two identifiers are unique.
+
+#note The 'havana_gene' and 'havana_transcript' attributes indicate the internal gene and transcript stable ids used by Havana and are also the main identifiers in the (now archived) Vega genome browser.They start with 'OTTHUM' and 'OTTMUS' for human and mouse respectively.
+TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/TCGA_OV_tpm.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE) %>% 
+ rename(id=...1) %>% #rename the first column 
+  separate( col = id, #separating out the identifiers in the first column by non alphanumeric characters
+            into=c(	"ensembl_transcript_id_version", 	#matching to the names in ensembl filters
+                    "ensembl_gene_id_version", 
+                    "havana_gene_id_version", 
+                    "havana_transcript_id_version", 
+                    "hgnc_trans_name", 
+                    "hgnc_symbol", 
+                    "unknown_number", 
+                    "transcript_type"),
+           sep='\\|', #| is a special character so requires \\
+            remove=FALSE) 
+
+#or TCGA_OV_tpm <-TCGA_OV_tpm %>% data.frame(do.call("rbind", strsplit(as.character(TCGA_OV_tpm$id), "|", fixed=TRUE))) # separates out and adds as new columns at the end using base R
+
+
+```
+
+```{r filtering out unwanted transcripts}
+categories <-  # take a look at what makes up the data: 79930 protein coding transcripts
+TCGA_OV_tpm %>% 
+  group_by(transcript_type) %>% 
+  summarise(transcript_type_count = n())
+
+variants <-TCGA_OV_tpm %>% 
+  group_by(`hgnc_symbol`) %>% 
+  summarise(counts=n())
+
+ TCGA_OV_tpm_coding <- TCGA_OV_tpm %>%  #removing retained introns, pseudogene reads, nonsense mediated decay and other non-coding transcripts
+   filter(transcript_type=='protein_coding') #shrinks from 199169 to 79930 rows with transcript variants from 19594 genes
+ 
+# (Intron retention (IR) is an alternative splicing mode whereby introns, rather than being spliced out as usual, are retained in mature mRNAs. Nonsense mediated decay reduces errors in gene expression by eliminating mRNA transcripts that contain premature stop codons.).
+ TCGA_OV_tpm_coding %>%  
+   summarise(distinct_genes = n_distinct(hgnc_symbol)) #19594 genes 
+ 
+ variants_2 <- TCGA_OV_tpm_coding %>%  # taking a look at which genes have multiple transcript versions 
+   group_by(hgnc_symbol) %>% 
+   summarise(counts=n())
+ 
+```
+
+```{r summing up the TPM of different transcripts for each gene, eval=FALSE, include=FALSE }
+#collapse each row with duplicate transcripts into a single row with the sum of all the transcripts as EcoTyper cannot accept duplicate names 
+  collapsed <- TCGA_OV_tpm_coding %>% 
+    dplyr::select(-id,
+                  -hgnc_trans_name, 
+                  -ensembl_transcript_id_version, 
+                  -ensembl_gene_id_version, 
+                  -havana_gene_id_version, 
+                  -havana_transcript_id_version,
+           -unknown_number, 
+           -transcript_type) %>% 
+     group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>% 
+      summarise(across(!c(hgnc_symbol), sum))#%>% 
+    #write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t")
+```
+
+```{r or taking the median TPM of transcript versions,eval=FALSE, include=FALSE}
+huh <-TCGA_OV_tpm_coding %>%
+  dplyr::select(-id,
+                  -hgnc_trans_name, 
+                  -ensembl_transcript_id_version, 
+                  -ensembl_gene_id_version, 
+                  -havana_gene_id_version, 
+                  -havana_transcript_id_version,
+           -unknown_number, 
+           -transcript_type) %>% 
+  group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>%
+   summarise(across(where(is.numeric),list(median = median)))
+
+write_delim(huh, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/tatlow_picollo_2016_for_ecotyper_2_median_all.tsv", delim="\t")
+```
+
+SplicingFactory is an R package for the analysis of alternative splicing isoform diversity. The package provides the ability to generate gene-level Shannon-entropy values and other diversity measures, such as the Gini- or Simpson-index. These measures can quantify transcript isoform diversity within samples or between conditions. Additionally, the package analyzes the isoform diversity data, looking for significant changes between conditions. A basic task during analysis is to use read counts or TPM to calculate a diversity measure and then perform a differential analysis to identify genes with a significant change between conditions. 
+https://bioconductor.org/packages/devel/bioc/vignettes/SplicingFactory/inst/doc/SplicingFactory.html#data-filtering-and-preprocessing
+
+```{r SplicingFactory to look at transcript isoforms}
+
+# Extract gene names
+genes <- TCGA_OV_tpm_coding[, "hgnc_symbol"]
+
+# Extract read count data without gene names
+tpm <- TCGA_OV_tpm_coding[, 10:431]
+
+# Check TPM dataset
+dim(tpm)
+#> [1] 79930   422
+
+#As a first step, before doing the diversity calculation, you might want to filter out genes with a low overall expression or limit the analysis to transcripts with a sufficient minimum expression level. Expression estimates of transcript isoforms with zero or low expression might be highly variable.
+
+#Here, we are filtering out transcript isoforms with less than 5 reads in more than 5 samples. Additionally, we update the genes vector to match the new filtered matrix.
+
+#tokeep <- rowSums(tpm > 5) > 5
+#tpm <- tpm[tokeep, ]
+#genes <- genes[tokeep]
+
+#as this matrix is TPM I am not filtering out lowly expressed isoforms yet (may reconsider)
+
+#While SplicingFactory can process any kind of numeric value, used to measure expression levels, we recommend TPM or similar length normalized values.
+
+#calculate_diversity function to calculate two different types of transcript diversity:
+#x - Input data, in various formats, discussed in more detail in the Input data structure and Data arrangement section.
+#genes - A vector with gene names used for aggregating the transcript level data.
+#method - Method to use for splicing diversity calculation.
+#norm - If set to TRUE, the entropy values are normalized to the number of transcripts for each gene.
+#tpm - In the case of a tximport list, you might want set the tpm argument. As the default option is FALSE, the raw read counts will be extracted from your input data. Set it to TRUE if you want to use TPM values.
+#assayno - An optional argument is assayno, which is useful if you are planning to analyze a SummarizedExperiment input, containing multiple assays. assayno is a numeric value, specifying the assay to be analyzed.
+#verbose - Set it to TRUE if you want more detailed diagnostic messages.
+#To calculate Laplace entropy, where values are normalized between 0 and 1, use:
+library(SplicingFactory)
+library(SummarizedExperiment)
+
+#the gini index and the laplace entropy reflect transcript diversity 
+
+laplace_entropy <- calculate_diversity(tpm, genes$hgnc_symbol, method = "laplace", #not sure if I can perform this on TPM
+                                       norm = FALSE, verbose = TRUE)
+
+head(assay(laplace_entropy)[, 1:5]) # examine the output using the assay function from SummarisedExperiment
+
+#To calculate Gini index, you don’t need to specify the norm argument, as the Gini index is by definition ranges between 0 (complete equality) and 1 (complete inequality).
+
+gini_index <- calculate_diversity(tpm, genes$hgnc_symbol,  method = "gini",
+                                  verbose = TRUE)
+#> Note: There are 70 genes with single isoforms,
+#>     which will be exluded from the analysis.
+
+head(assay(gini_index)[, 1:5])
+```
+
+Both for the Laplace-entropy and Gini index calculation, the package returns a SummarizedExperiment object, that you can investigate further with the assay function.
+
+The package automatically filters out genes with a single isoform, as splicing diversity values can only be calculated for genes with at least 2 splicing isoforms.
+
+Some genes might show NA diversity values. This means that the expression was zero for all transcript isoforms of the gene in these samples and the package could not calculate any diversity value. Lack of expression might also be the result of technical issues.
+
+
+
+```{r To see the distribution and density of the splicing diversity data}
+library("ggplot2")
+
+# Construct data.frame from SummarizedExperiment result
+laplace_data <- cbind(assay(laplace_entropy),
+                      Gene = rowData(laplace_entropy)$genes)
+
+# Reshape data.frame
+laplace_data <- pivot_longer(laplace_data, -Gene, names_to = "sample",
+                             values_to = "entropy")
+
+# Add sample type information
+laplace_data$sample_type <- apply(laplace_data[, 2], 1,
+                                  function(x) ifelse(grepl("_N", x),
+                                                     "Normal", "Tumor")) # think I need to change the sample ID to this format TCGA-A7-A0CH-11A-32R-A089-07 to get it to work
+
+# Filter genes with NA entropy values
+laplace_data <- drop_na(laplace_data)
+
+# Update gene names and add diversity type column
+laplace_data$Gene <- paste0(laplace_data$Gene, "_", laplace_data$sample_type)
+laplace_data$diversity <-  "Normalized Laplace entropy"
+
+# Construct data.frame from SummarizedExperiment result
+gini_data <- cbind(assay(gini_index), Gene = rowData(gini_index)$genes)
+
+# Reshape data.frame
+gini_data <- pivot_longer(gini_data, -Gene, names_to = "sample",
+                          values_to = "gini")
+
+# Add sample type information
+gini_data$sample_type <- apply(gini_data[, 2], 1,
+                               function(x) ifelse(grepl("_N", x),
+                                                  "Normal", "Tumor"))
+
+# Filter genes with NA gini values
+gini_data <- drop_na(gini_data)
+
+# Update gene names and add diversity type column
+gini_data$Gene <- paste0(gini_data$Gene, "_", gini_data$sample_type)
+gini_data$diversity <-  "Gini index"
+
+# Plot diversity data
+ggplot() +
+  geom_density(data = laplace_data, alpha = 0.3,
+               aes(x = entropy, group = sample, color = diversity)) +
+  geom_density(data = gini_data, alpha = 0.3,
+               aes(x = gini, group = sample, color = diversity)) +
+  facet_grid(. ~ sample_type) +
+  scale_color_manual(values = c("black", "darkorchid4")) +
+  guides(color = FALSE) +
+  theme_minimal() +
+  labs(x = "Diversity values",
+       y = "Density")
+#> Warning: `guides(<scale> = FALSE)` is deprecated. Please use `guides(<scale> =
+#> "none")` instead.
+
+```
+
+
+```{r}
+# Mean entropy calculation across samples for each gene/sample type combination
+laplace_entropy_mean <- aggregate(laplace_data$entropy,
+                                  by = list(laplace_data$Gene), mean)
+colnames(laplace_entropy_mean)[2] <- "mean_entropy"
+laplace_entropy_mean <- as_tibble(laplace_entropy_mean)
+
+# Add sample type information
+laplace_entropy_mean$sample_type <- apply(laplace_entropy_mean[, 1], 1,
+                                          function(x) ifelse(grepl("_Normal", x),
+                                                             "Normal", "Tumor"))
+
+# Add diversity type column
+laplace_entropy_mean$diversity <-  "Normalized Laplace entropy"
+
+# Mean gini calculation across samples for each gene/sample type combination
+gini_mean <- aggregate(gini_data$gini, by = list(gini_data$Gene), mean)
+colnames(gini_mean)[2] <- "mean_gini"
+gini_mean <- as_tibble(gini_mean)
+
+# Add sample type information
+gini_mean$sample_type <- apply(gini_mean[, 1], 1,
+                               function(x) ifelse(grepl("_Normal", x),
+                                                  "Normal", "Tumor"))
+
+# Add diversity type column
+gini_mean$diversity <-  "Gini index"
+
+ggplot() +
+  geom_violin(data = laplace_entropy_mean, aes(x = sample_type, y = mean_entropy,
+                                               fill = diversity),
+              alpha = 0.6) +
+  geom_violin(data = gini_mean, aes(x = sample_type, y = mean_gini,
+                                    fill = diversity),
+              alpha = 0.6) +
+  scale_fill_viridis_d(name = "Diversity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Samples",
+       y = "Diversity")
+```
+
+
+```{r}
+#selecting a subset of the data as ecotyper will only accept files up to 200kb in size                                     
+#TCGA_OV_tpm_hgnc <- TCGA_OV_tpm %>% 
+#  select(-"id",-"1",-"2",-"3",-"4",-"6",-"7",-"8") %>% 
+ # select(1:110) %>% 
+ # write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t") 
+```
+
+```{r}
+sessionInfo()
+```
+

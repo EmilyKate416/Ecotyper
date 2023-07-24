@@ -1,0 +1,345 @@
+---
+title: "EcoTyper tutorials"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(readxl)
+library(tidyverse)
+library(janitor)
+```
+
+```{r}
+setwd("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/")
+```
+
+```{r load the results from my ecotyper analysis}
+#preprocessed data from Tatlow and Picollo 2016 including all transcripts (not protein coding only) with transcript isoforms collapsed to median per gene
+#ecotype_assignment_3_median_all <- read_delim("ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_3_median_all/tatlow_picollo_2016_for_ecotyper_3_median_all_transcripts/Ecotypes/ecotype_assignment.txt", 
+    # delim = "\t", escape_double = FALSE, 
+    # trim_ws = TRUE) %>% 
+  
+ecotype_assignment_3_median_all <- read_delim("Tatlow_and_Piccolo_2016/ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_3_median_all/tatlow_picollo_2016_for_ecotyper_3_median_all_transcripts/Ecotypes/ecotype_assignment.txt", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE) %>% 
+  clean_names()  %>% 
+  dplyr::rename(assigned_ce = assignment_p)
+
+```
+
+
+
+```{r load and tidy the results for the same dataset from Luca et al., 2016}
+
+author_ecotype_abundances <-read_excel("/home/lythgo02/ecotyper/EcoTyper_source_code/1-s2.0-S0092867421010618-mmc6_table_s6_ecotype_abundances.xlsx", 
+    sheet = "S6A", col_names = FALSE) # contains the data for all indications from TCGA Tatlow and Picollo., 2016, not just ovarian dataset 
+
+author_ecotype_abundances <- author_ecotype_abundances[-c(1:4),]  #remove additional data in first four rows of table 
+author_ecotype_abundances$...1 <-  str_replace_all(author_ecotype_abundances$...1, "\\.", "-") #convert punctuation in ID to the same format as in the ID map from Tatlow and Picollo 2016 
+author_ecotype_abundances <- author_ecotype_abundances %>% 
+    row_to_names(row_number = 1) %>%  
+   clean_names() %>% 
+   dplyr::rename(assigned_ce = na_2,
+                 aliquot_barcode = na)
+   
+```
+
+```{r load the ID map from Tatlow and Picollo., 2016 metadata } 
+ tcga_id_map_tatlow_piccolo <- read_csv("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/TCGA_ID_MAP.csv") %>% clean_names() %>%
+   as.data.frame() %>% 
+   dplyr::filter(disease=="OV")
+```
+
+```{r match TCGA ID in Luca data to CG hub analysis ID}
+#Luca data identified by TCGA ID, mine are identified by CG hub analysis ID (which are contained attached to relevant TCGA ID within ID map)
+author_ecotype_abundances_mapped <- full_join(author_ecotype_abundances, tcga_id_map_tatlow_piccolo) %>% 
+  dplyr::filter(disease=="OV") %>% 
+  na.omit() %>%  mutate_at(c('ce1', 'ce2', 'ce3', 'ce4', 'ce5', 'ce6', 'ce7', 'ce8', 'ce9', 'ce10'), as.numeric)  #266 from the author_ecotype_abundances match up to IDs from the Tatlow and Piccolo ID map (Luca and Steen only included 266 TCGA ovarian cancer samples in their analysis)
+ 
+
+```
+
+```{r graphical comparison of proportion of sample assigned to each ecotype (different n)}
+#table of total samples assigned to each ecotype from my analysis
+counts_per_ecotype_EL <- ecotype_assignment_3_median_all %>% 
+  group_by(assigned_ce) %>% 
+  tally() %>% 
+  dplyr::rename(my_analysis=n) 
+
+newrow <- c("Unassigned", 126) # check the number is correct
+counts_per_ecotype_EL <- rbind(counts_per_ecotype_EL, newrow) 
+counts_per_ecotype_EL$my_analysis <- as.numeric(counts_per_ecotype_EL$my_analysis) # converting back to numeric as adding the new "unassigned" row converts to character
+proportions_per_ecotype_EL <-  counts_per_ecotype_EL %>%  adorn_percentages("col") %>% mutate(percentage=my_analysis*100) # convert counts to percentages
+  
+EL <- ggplot(proportions_per_ecotype_EL, aes(x=assigned_ce, y=percentage)) +
+  #geom_col() +
+  geom_bar(stat = "identity", fill="lightblue")+  
+  scale_x_discrete(limits = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10"))+
+  theme_bw() + 
+  xlab("Carcinoma Ecotype") + 
+  ylab("%") +
+  ggtitle("My analysis n=304") + # 430 samples analysed
+ # theme(legend.position = "none") +
+    theme(text=element_text(size=10), #change font size of all text
+        axis.text=element_text(size=10, face="bold"), #change font size of axis text
+        axis.title=element_text(size=12, face="bold"), #change font size of axis titles
+        plot.title=element_text(size=12, face="bold", vjust=2), #change font size of plot title
+        legend.text=element_text(size=10), #change font size of legend text
+        legend.title=element_text(size=10), #change font size of legend title      
+        axis.title.x=element_blank(),
+        axis.title.y = element_text(size = 10,vjust =1, face="bold"),
+        axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(), #  remove grid lines
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank()) + 
+        scale_y_continuous(expand = c(0,0.5))
+  #scale_color_hue(c=30, l=80) 
+ # theme(axis.text.x = element_text(hjust = -1))
+ # theme_minimal()
+
+
+proportions_per_ecotype_author <- author_ecotype_abundances_mapped %>% 
+  group_by(assigned_ce) %>% 
+  tally() %>% 
+  dplyr::rename(author_analysis = n) %>% 
+  adorn_percentages("col") %>% mutate(percentage=author_analysis*100) # convert counts to percentages
+
+author <- ggplot(proportions_per_ecotype_author, aes(x=assigned_ce, y=percentage)) +
+  geom_bar(stat = "identity", fill="lightblue") +
+   scale_x_discrete(limits = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10"))+
+  theme_bw() + 
+  xlab("Carcinoma Ecotype") + 
+  ylab("%") +
+  ggtitle("Luca et al., 2021 analysis n=266") + #266 samples analysed 
+ # theme(legend.position = "none") +
+  theme(text=element_text(size=10), #change font size of all text
+        axis.text=element_text(size=10, face="bold"), #change font size of axis text
+        axis.title=element_text(size=12, face="bold", vjust = 2), #change font size of axis titles
+        plot.title=element_text(size=12, face="bold", vjust=2), #change font size of plot title
+        legend.text=element_text(size=10), #change font size of legend text
+        #axis.title.x  = element_text(size = 12,vjust =1),
+       # axis.title.y = element_text(size = 12,vjust =1),
+        axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(), #  remove grid lines
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank()) + 
+        scale_y_continuous(expand = c(0,0.5))
+  #scale_color_hue(c=30, l=80) 
+ # theme_minimal()
+
+
+gridExtra::grid.arrange(EL, author)
+```
+
+```{r a different way to create the same graph}
+
+proportions_per_ecotype_author <- proportions_per_ecotype_author %>% dplyr::select(-percentage)
+proportions_per_ecotype_EL <- proportions_per_ecotype_EL %>% dplyr::select(-percentage)
+
+proportions_per_ecotype_combined <- full_join(proportions_per_ecotype_author, proportions_per_ecotype_EL)
+```
+```{r}
+#need to make long data wide and then plot on the same graph
+
+library(reshape2)
+# reshape data from wide to long format
+long <- melt(proportions_per_ecotype_combined, c("assigned_ce")) %>% 
+  dplyr::rename(proportion=value) %>% 
+  mutate(percentage=proportion*100)
+long$percentage <-as.numeric(long$percentage)
+  
+ggplot(long, aes(x=assigned_ce, y=percentage, fill=variable, color=variable)) +
+  geom_bar(stat="identity", position="dodge")+
+  scale_x_discrete(limits = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10"))+
+  theme(text=element_text(size=10), #change font size of all text
+        axis.text=element_text(size=8), #change font size of axis text
+        axis.title=element_text(size=10), #change font size of axis titles
+        plot.title=element_text(size=10), #change font size of plot title
+        legend.text=element_text(size=10), #change font size of legend text
+        legend.title=element_text(size=10))+ #change font size of legend title  +    
+  scale_color_hue(c=30, l=80) +
+  theme_bw() + 
+  xlab("Carcinoma Ecotype") + 
+  ylab("%")
+```
+
+```{r identifying OV samples shared between my analysis and the author's analysis}
+
+#now load the abundance (not assignment) table
+ecotype_abundance_3_median_all <- read.table("Tatlow_and_Piccolo_2016/ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_3_median_all/tatlow_picollo_2016_for_ecotyper_3_median_all_transcripts/Ecotypes/ecotype_abundance.txt")
+#the table contains CGhub analysis IDs as identifiers with different punctuation to the example data provided by the authors
+
+#transpose table
+ecotype_abundance_EL_long <- data.table::transpose(ecotype_abundance_3_median_all)
+#redefine row and column names
+rownames(ecotype_abundance_EL_long) <- colnames(ecotype_abundance_3_median_all)
+colnames(ecotype_abundance_EL_long) <- rownames(ecotype_abundance_3_median_all)
+
+ecotype_abundance_EL_long <- ecotype_abundance_EL_long  %>% rownames_to_column( var = "rowname")
+#ecotype_abundance_3_median_all_long$rowname <-  str_replace_all(ecotype_abundance_3_median_all_long$rowname, "\\.", "-") %>% as_vector()
+ecotype_abundance_EL_long$cg_hub_analysis_id <- str_replace_all(ecotype_abundance_EL_long$rowname, "\\.", "-")
+ecotype_abundance_EL_long$cg_hub_analysis_id <- str_replace_all(ecotype_abundance_EL_long$cg_hub_analysis_id, "_median", "") 
+#teast <- left_join(tcga_id_map_tatlow_piccolo, ecotype_abundance_3_median_all_long)
+#create a list of the 266 cd_analysis_hub_id present in the author's analysis 
+author_id_list <- author_ecotype_abundances_mapped[,-2:-12] # extracting the IDs I am interested in
+
+#match to the id in my analysis 
+eco_abund_EL_long_filtered <- left_join(author_id_list, ecotype_abundance_EL_long) %>% 
+                                        remove_missing() %>% 
+                                        dplyr::select(-aliquot_id, -aliquot_barcode, -disease, -rowname)   
+                
+shared_id <- eco_abund_EL_long_filtered$cg_hub_analysis_id %>% as.data.frame() %>% dplyr::rename("cg_hub_analysis_id"=".")
+shared_id$cg_hub_analysis_id <- str_replace_all(shared_id$cg_hub_analysis_id, "_median", "")
+shared_id$cg_hub_analysis_id <- str_replace_all(shared_id$cg_hub_analysis_id, "\\.", "-")
+
+author_abundances_filtered <- subset( author_ecotype_abundances_mapped, author_ecotype_abundances_mapped$cg_hub_analysis_id %in% shared_id$cg_hub_analysis_id) %>% 
+   dplyr::select(-aliquot_id, -aliquot_barcode, -disease, -assigned_ce) %>% 
+  column_to_rownames("cg_hub_analysis_id")
+
+eco_abund_EL_long_filtered <- eco_abund_EL_long_filtered %>%  column_to_rownames("cg_hub_analysis_id")
+```
+
+#need to check if the 99 that matchh are the same ones that match when I check with TCGA aliquot barcode
+
+```{r }
+
+#author_analysis_samples_in_common <- subset(author_ecotype_abundances_mapped,author_ecotype_abundances_mapped$cg_hub_analysis_id %in% ecotype_abundance_3_median_all_long$cg_hub_analysis_id)  %>% 
+ # dplyr::select(-aliquot_id, -aliquot_barcode, -disease, -assigned_ce) %>%   column_to_rownames("cg_hub_analysis_id")# keep only the rows from author_ecotype_abundances_mapped for which the cg_hub_analysis_id also appears in ecotype_abundance_median_all_long
+
+#not sure why the IDs don't match between tables
+
+#my_analysis_samples_in_common <- subset(ecotype_abundance_3_median_all_long, ecotype_abundance_3_median_all_long$cg_hub_analysis_id %in% author_ecotype_abundances_mapped$cg_hub_analysis_id) %>% 
+ #  dplyr::select(-rowname) %>% 
+  #rownames_to_column() %>%  
+  #dplyr::select(-rowname) %>% 
+ # column_to_rownames("cg_hub_analysis_id") %>% clean_names()# keep only the rows from ecotype_abundance_median_all_long for which the cg_hub_analysis_id also appears in  author_ecotype_abundances_mapped
+
+```
+
+
+```{r for loop for analysis, warning=FALSE}
+
+expected <- (round(author_abundances_filtered*100) +1) %>% write_csv("expected.csv")
+
+observed <- (round(eco_abund_EL_long_filtered *100)+1) %>% write_csv("observed.csv")
+
+
+results <- c() # initialise the variable for use in the loop
+
+for (i in 1:nrow(observed)) { #for as many elements as there are in the observed table
+observed_vector <- unname(as_vector(observed[i,])) #chi squared function will only work on unnamed vectors
+expected_proportions <- unname(as_vector(eco_abund_EL_long_filtered[i,])) #to pull out the expected proportions of each ecotype in that sample (is the raw ecotyper results)
+results <- rbind(results, chisq.test(x=observed_vector, p=expected_proportions)) } # put the results of the chi squared test on each row into a new table
+
+```
+
+```{r repeating with the version of my results that filters for protein coding only}
+
+#trying with protein coding only instead
+ecotype_abundance_3_median_coding <- read.table("Tatlow_and_Piccolo_2016/ecotyper_output/130522_tatlow_piccolo_2016_for_ecotyper_2_median_all_protein_coding/tatlow_picollo_2016_for_ecotyper_2_median_all/Ecotypes//ecotype_abundance.txt")
+
+#transpose table
+ecotype_abundance_EL_long <- data.table::transpose(ecotype_abundance_3_median_coding)
+#redefine row and column names
+rownames(ecotype_abundance_EL_long) <- colnames(ecotype_abundance_3_median_coding)
+colnames(ecotype_abundance_EL_long) <- rownames(ecotype_abundance_3_median_coding)
+
+ecotype_abundance_EL_long <- ecotype_abundance_EL_long  %>% rownames_to_column( var = "rowname")
+#ecotype_abundance_3_median_all_long$rowname <-  str_replace_all(ecotype_abundance_3_median_all_long$rowname, "\\.", "-") %>% as_vector()
+ecotype_abundance_EL_long$cg_hub_analysis_id <- str_replace_all(ecotype_abundance_EL_long$rowname, "\\.", "-")
+ecotype_abundance_EL_long$cg_hub_analysis_id <- str_replace_all(ecotype_abundance_EL_long$cg_hub_analysis_id, "_median", "") 
+#teast <- left_join(tcga_id_map_tatlow_piccolo, ecotype_abundance_3_median_all_long)
+#create a list of the 266 cd_analysis_hub_id present in the author's analysis 
+author_id_list <- author_ecotype_abundances_mapped[,-2:-12] # extracting the IDs I am interested in
+
+#match to the id in my analysis 
+eco_abund_EL_long_filtered <- left_join(author_id_list, ecotype_abundance_EL_long) %>% 
+                                        remove_missing() %>% 
+                                        dplyr::select(-aliquot_id, -aliquot_barcode, -disease, -rowname)   
+                
+shared_id <- eco_abund_EL_long_filtered$cg_hub_analysis_id %>% as.data.frame() %>% dplyr::rename("cg_hub_analysis_id"=".")
+shared_id$cg_hub_analysis_id <- str_replace_all(shared_id$cg_hub_analysis_id, "_median", "")
+shared_id$cg_hub_analysis_id <- str_replace_all(shared_id$cg_hub_analysis_id, "\\.", "-")
+
+author_abundances_filtered <- subset( author_ecotype_abundances_mapped, author_ecotype_abundances_mapped$cg_hub_analysis_id %in% shared_id$cg_hub_analysis_id) %>% 
+   dplyr::select(-aliquot_id, -aliquot_barcode, -disease, -assigned_ce) %>% 
+  column_to_rownames("cg_hub_analysis_id")
+
+eco_abund_EL_long_filtered <- eco_abund_EL_long_filtered %>%  column_to_rownames("cg_hub_analysis_id")
+```
+
+```{r for loop for analysis for protein coding data, warning=FALSE}
+
+#expected <- (round(author_abundances_filtered*100) +1) %>% write_csv("expected.csv")
+
+observed_protein_coding <- (round(eco_abund_EL_long_filtered *100)+1) %>% write_csv("observed_protein_coding.csv")
+
+
+results_pc <- c() # initialise the variable for use in the loop
+
+for (i in 1:nrow(observed_protein_coding)) { #for as many elements as there are in the observed table
+observed_vector <- unname(as_vector(observed_protein_coding[i,])) #chi squared function will only work on unnamed vectors
+expected_proportions <- unname(as_vector(eco_abund_EL_long_filtered[i,])) #to pull out the expected proportions of each ecotype in that sample (is the raw ecotyper results)
+results_pc <- rbind(results_pc, chisq.test(x=observed_vector, p=expected_proportions)) } # put the results of the chi squared test on each row into a new table
+
+```
+
+```{r}
+results <- as_tibble(results) %>%  clean_names() %>% mutate(type="results")
+results$p_value <- as.numeric(results$p_value)
+#This function allows one to view a histogram of the p-values along with line plots of the q-values and local FDR values versus p-values. The pi_0 estimate is also displayed.
+qobj <- qvalue(results$p_value)
+hist(results$p_value)
+hist(qobj)
+```
+
+```{r histogram compairing protein coding vs whole genome results}
+#results <- as.tibble(results) %>%  clean_names() %>% mutate(type="results")
+results_pc <- as.tibble(results_pc) %>%  clean_names() %>% mutate(type="results_pc")
+both_results <- rbind(results, results_pc)
+both_results$p_value <- as.numeric(both_results$p_value)
+# Histogram faceted by contrast
+labels <- c(results = "All Transcript Types", results_pc = "Protein Coding Transcripts Only")
+
+ggplot(both_results) +
+  geom_histogram(aes(x = p_value),
+                 color = "lightblue", fill = "lightblue") +
+  facet_wrap(vars(type),
+            # strip.position = "top",
+             labeller=labeller(type = labels)) + # separate plots
+   xlab("p value") + 
+ # ylab("Count") +
+  theme_minimal(base_size = 12) +
+  theme(panel.background = element_rect(fill = 'white'), # change the colur of the background
+        strip.background = element_rect(fill="white") , 
+        strip.placement  = "inside" , # outside to place below
+        strip.text = element_text(size = 10, face="bold"),
+        panel.grid.major = element_blank(), #  remove grid lines
+        panel.grid.minor = element_blank(), 
+      #  axis.line = element_line(colour = "black"),
+        axis.title.y = element_text(size = 10,vjust =3, face="bold"),
+        axis.title.x = element_text(size = 10,vjust =1, face="bold"),
+        text=element_text(size=10), #change font size of all text
+        axis.text=element_text(size=10, face="bold"), #change font size of axis text
+        axis.text.y = element_blank(),
+        axis.title=element_text(size=10, face="bold"), #change font size of axis title
+        legend.text=element_text(size=10, face="bold"), #change font size of legend text
+        legend.title=element_text(size=10, face="bold") ,
+         panel.border = element_blank()) +
+  scale_y_continuous(expand = c(0,0.7))
+ 
+
+```
+
+
+# based on these results I can be confident that you have been able to reproduce the results. There is always a small amount of noise due to different software versions etc. but I think the differences are mostly due to the method of testing the differences rather than genuine differences itself
+
+
+
+For the cases that are identified as differing significantly it may be worth comparing the untransformed ecotype proportions if anyone asks for them (just have raw ecotyper output to hand) to show the differences are very slight. 
+
+Only 99 ID match:
+As for the second issue - if you have time, I would probably ask the ecotyper authors about that, as I guess it may be a bit of an issue if you can only find about a third of the data they analyse

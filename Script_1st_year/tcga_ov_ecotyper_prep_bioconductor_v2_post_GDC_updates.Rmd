@@ -1,0 +1,627 @@
+---
+title: "tcga_ov_ecotyper_prep"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Access and import TCGA data using the R/Bioconductor package TCGAbiolinks
+#https://benbermanlab.com/assets/code/Workshop%20-%20TCGA%20data%20analysis.html
+
+#http://www.ensembl.org/info/data/biomart/biomart_r_package.html
+
+```{r, load required packages}
+
+suppressMessages({
+    library(TCGAbiolinks)
+    library(MultiAssayExperiment)
+    library(maftools)
+    library(dplyr)
+    library(ComplexHeatmap)
+    library(readr)
+    library(biomaRt)
+  library(GenomicDataCommons)
+})
+```
+
+GDC database connection:
+In order to filter the data available in GDC some fields are available such as project (TCGA, TARGET, etc.), data category (Transcriptome Profiling, DNA methylation, Clinical, etc.), data type (Gene Expression Quantification, Isoform Expression Quantification, Methylation Beta Value, etc.), experimental strategy (miRNA-Seq, RNA-Seq, etc.), Workflow Type, platform, access type and others.
+
+```{r}
+clinical <- GDCquery_clinic("TCGA-OV") # see what is in the TCGA-OV project in GDC database
+head(clinical)
+```
+
+```{r downloading normalised read counts}
+#Fragments Per Kilobase of transcript per Million mapped reads (FPKM) is a simple expression level normalization method
+#FPKM is implemented at the GDC on gene-level read counts that are produced by HTSeq
+#Genome Build	GRCh38.p0
+#Genome Name	GRCh38.d1.vd1
+
+#updateGDC Product: Data - GENCODE v36 Release replaced HTSeq
+#Release Date: March 29, 2022
+#New updates: RNA-Seq STAR-Counts files now contain additional normalized counts such as FPKM, FPKM-UQ, and TPM
+#TCGA RNA-Seq has been changed to contain three alignments (genomic, transcriptome, and chimeric), STAR-counts files, and transcript fusion files for each aliquot.Files from the HTSeq pipeline are no longer supported and will no longer appear in the portal. Normalized counts can now be found in the STAR-Counts files.
+
+
+#attempt to use legacy data:
+#https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/query.html#Gene_expression
+
+#TCGAbiolinks uses three main functions GDCquery, GDCdownload and GDCprepare. GDCquery utilises the GDC API to search the data for named project and data category, filtering the results by user specified features and returning a searchable table summarising the files and samples available for that query (Health et al. 2016). A specific query can then be downloaded via the GDC API or GDC client tools (as shown here) using GDCdownload, and GDCprepare then converts the datasets to a summarized experiment object. 
+
+query.legacy <- GDCquery(
+    project = "TCGA-OV",
+    data.category = "Gene expression",
+    data.type = "Gene expression quantification",
+    platform = "Illumina HiSeq", 
+    file.type  = "normalized_results",
+    experimental.strategy = "RNA-Seq",
+    barcode = c("TCGA-10-0927-01A", # list of patient barcodes to download data for
+"TCGA-13-0891-01A",
+"TCGA-23-1028-01A",
+"TCGA-36-1577-01A",
+"TCGA-04-1362-01A",
+"TCGA-29-1696-01A",
+"TCGA-59-A5PD-01A",
+"TCGA-13-0900-01B",
+"TCGA-24-1924-01A",
+"TCGA-24-1425-01A",
+"TCGA-24-1469-01A",
+"TCGA-25-1870-01A",
+"TCGA-04-1648-01A",
+"TCGA-23-1114-01B",
+"TCGA-61-1738-01A",
+"TCGA-25-1632-01A",
+"TCGA-25-1323-01A",
+"TCGA-59-2348-01A",
+"TCGA-13-0893-01B",
+"TCGA-VG-A8LO-01A",
+"TCGA-61-1741-01A",
+"TCGA-57-1584-01A",
+"TCGA-24-1424-01A",
+"TCGA-24-2297-01A",
+"TCGA-24-1417-01A",
+"TCGA-57-1586-01A",
+"TCGA-29-1707-02A",
+"TCGA-13-1501-01A",
+"TCGA-23-1023-01A",
+"TCGA-24-2261-01A",
+"TCGA-13-0762-01A",
+"TCGA-24-2035-01A",
+"TCGA-61-1911-01A",
+"TCGA-25-2400-01A",
+"TCGA-10-0936-01A",
+"TCGA-61-1737-01A",
+"TCGA-25-2396-01A",
+"TCGA-23-1111-01A",
+"TCGA-13-1407-01A",
+"TCGA-61-1918-01A",
+"TCGA-61-2104-01A",
+"TCGA-61-1725-01A",
+"TCGA-09-1665-01B",
+"TCGA-13-0908-01B",
+"TCGA-24-1553-01A",
+"TCGA-25-1626-01A",
+"TCGA-61-2110-01A",
+"TCGA-24-2254-01A",
+"TCGA-61-1728-01A",
+"TCGA-59-2350-01A",
+"TCGA-23-1024-01A",
+"TCGA-25-1320-01A",
+"TCGA-24-1847-01A",
+"TCGA-24-1845-01A",
+"TCGA-13-1405-01A",
+"TCGA-24-1418-01A",
+"TCGA-09-2051-01A",
+"TCGA-29-1766-01A",
+"TCGA-29-1763-01A",
+"TCGA-13-1492-01A",
+"TCGA-61-1721-01A",
+"TCGA-09-0367-01A",
+"TCGA-30-1714-01A",
+"TCGA-23-1029-01B",
+"TCGA-25-1322-01A",
+"TCGA-24-1422-01A",
+"TCGA-31-1959-01A",
+"TCGA-24-2033-01A",
+"TCGA-24-1435-01A",
+"TCGA-29-2427-01A",
+"TCGA-24-1923-01A",
+"TCGA-61-2111-01A",
+"TCGA-04-1332-01A",
+"TCGA-24-2271-01A",
+"TCGA-09-1668-01B",
+"TCGA-24-1551-01A",
+"TCGA-24-1565-01A",
+"TCGA-09-1669-01A",
+"TCGA-13-0804-01A",
+"TCGA-13-0887-01A",
+"TCGA-61-2102-01A",
+"TCGA-24-2298-01A",
+"TCGA-24-1431-01A",
+"TCGA-04-1341-01A",
+"TCGA-5X-AA5U-01A",
+"TCGA-13-0768-01A",
+"TCGA-24-1104-01A",
+"TCGA-13-1489-01A",
+"TCGA-10-0933-01A",
+"TCGA-13-1498-01A",
+"TCGA-13-0720-01A",
+"TCGA-25-1635-01A",
+"TCGA-29-1778-01A",
+"TCGA-23-1122-01A",
+"TCGA-13-1506-01A",
+"TCGA-25-1628-01A",
+"TCGA-25-1634-01A",
+"TCGA-61-2009-01A",
+"TCGA-24-2024-01A"),
+    legacy = TRUE
+)
+
+```
+
+```{r}
+GDCdownload(query.legacy) #uses either the GDC API to download the samples, or the gdc client tools. The downloaded data will be saved in a directory with the project name and a sub-folder with the data.category
+test <- GDCprepare(query.legacy)
+                  # save = TRUE,
+                 #  save.filename = "tcga_ov.rda" ,
+                  # summarizedExperiment = TRUE)  #transforms the downloaded data into a summarizedExperiment object or a data frame. If SummarizedExperiment is set to TRUE, TCGAbiolinks will add to the object sub-type information and clinical information.
+
+
+DT::datatable(getResults(query.legacy, rows = 1:100), 
+    filter = 'top',
+    options = list(scrollX = TRUE, keys = TRUE, pageLength = 5), 
+    rownames = FALSE)
+
+
+#getManifest(query.legacy,save = TRUE) #If you want to get the manifest file from the query object you can use the function getManifest. If you set save to TRUEm a txt file that can be used with GDC-client Data transfer tool (DTT) or with its GUI version ddt-ui will be created.
+```
+```{r}
+#non legacy
+query <- GDCquery(project = "TCGA-OV", 
+                  data.category = "Transcriptome Profiling", 
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "STAR - Counts")#, #or FPKM - A normalized expression value that takes into account each gene length and the number of reads mapped to all protein-coding genes
+
+```
+
+```{r}
+#or if you wanted to specify particular patients add this into the GDCquery command
+query <- GDCquery(project = "TCGA-OV", 
+                  data.category = "Transcriptome Profiling", 
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "STAR - Counts",
+                  barcode =  c("TCGA-10-0927-01A", # list of patient barcodes to download data for
+"TCGA-13-0891-01A",
+"TCGA-23-1028-01A",
+"TCGA-36-1577-01A",
+"TCGA-04-1362-01A",
+"TCGA-29-1696-01A",
+"TCGA-59-A5PD-01A",
+"TCGA-13-0900-01B",
+"TCGA-24-1924-01A",
+"TCGA-24-1425-01A",
+"TCGA-24-1469-01A",
+"TCGA-25-1870-01A",
+"TCGA-04-1648-01A",
+"TCGA-23-1114-01B",
+"TCGA-61-1738-01A",
+"TCGA-25-1632-01A",
+"TCGA-25-1323-01A",
+"TCGA-59-2348-01A",
+"TCGA-13-0893-01B",
+"TCGA-VG-A8LO-01A",
+"TCGA-61-1741-01A",
+"TCGA-57-1584-01A",
+"TCGA-24-1424-01A",
+"TCGA-24-2297-01A",
+"TCGA-24-1417-01A",
+"TCGA-57-1586-01A",
+"TCGA-29-1707-02A",
+"TCGA-13-1501-01A",
+"TCGA-23-1023-01A",
+"TCGA-24-2261-01A",
+"TCGA-13-0762-01A",
+"TCGA-24-2035-01A",
+"TCGA-61-1911-01A",
+"TCGA-25-2400-01A",
+"TCGA-10-0936-01A",
+"TCGA-61-1737-01A",
+"TCGA-25-2396-01A",
+"TCGA-23-1111-01A",
+"TCGA-13-1407-01A",
+"TCGA-61-1918-01A",
+"TCGA-61-2104-01A",
+"TCGA-61-1725-01A",
+"TCGA-09-1665-01B",
+"TCGA-13-0908-01B",
+"TCGA-24-1553-01A",
+"TCGA-25-1626-01A",
+"TCGA-61-2110-01A",
+"TCGA-24-2254-01A",
+"TCGA-61-1728-01A",
+"TCGA-59-2350-01A",
+"TCGA-23-1024-01A",
+"TCGA-25-1320-01A",
+"TCGA-24-1847-01A",
+"TCGA-24-1845-01A",
+"TCGA-13-1405-01A",
+"TCGA-24-1418-01A",
+"TCGA-09-2051-01A",
+"TCGA-29-1766-01A",
+"TCGA-29-1763-01A",
+"TCGA-13-1492-01A",
+"TCGA-61-1721-01A",
+"TCGA-09-0367-01A",
+"TCGA-30-1714-01A",
+"TCGA-23-1029-01B",
+"TCGA-25-1322-01A",
+"TCGA-24-1422-01A",
+"TCGA-31-1959-01A",
+"TCGA-24-2033-01A",
+"TCGA-24-1435-01A",
+"TCGA-29-2427-01A",
+"TCGA-24-1923-01A",
+"TCGA-61-2111-01A",
+"TCGA-04-1332-01A",
+"TCGA-24-2271-01A",
+"TCGA-09-1668-01B",
+"TCGA-24-1551-01A",
+"TCGA-24-1565-01A",
+"TCGA-09-1669-01A",
+"TCGA-13-0804-01A",
+"TCGA-13-0887-01A",
+"TCGA-61-2102-01A",
+"TCGA-24-2298-01A",
+"TCGA-24-1431-01A",
+"TCGA-04-1341-01A",
+"TCGA-5X-AA5U-01A",
+"TCGA-13-0768-01A",
+"TCGA-24-1104-01A",
+"TCGA-13-1489-01A",
+"TCGA-10-0933-01A",
+"TCGA-13-1498-01A",
+"TCGA-13-0720-01A",
+"TCGA-25-1635-01A",
+"TCGA-29-1778-01A",
+"TCGA-23-1122-01A",
+"TCGA-13-1506-01A",
+"TCGA-25-1628-01A",
+"TCGA-25-1634-01A",
+"TCGA-61-2009-01A",
+"TCGA-24-2024-01A"
+
+))
+```
+
+```{r}
+
+GDCdownload(query) 
+# downloads individual files and manifest file, The downloaded data will be saved in a directory with the project name and a sub-folder with the data.category
+```
+
+```{r}
+#searchable datatable summarising files available 
+results <- getResults(query)
+
+```
+
+```{r}
+#GDCprepare transforms the downloaded data into a summarizedExperiment object or a data frame
+# Prepare expression matrix with geneID in the rows and samples (barcode) in the columns
+counts <- GDCprepare(query) #%>% 
+   # rename(ensembl_gene_id_version = X1) #rename to match ensemble biomart notation
+
+
+```
+Available assays in SummarizedExperiment : 
+  => unstranded
+  => stranded_first
+  => stranded_second
+  => tpm_unstrand
+  => fpkm_unstrand
+  => fpkm_uq_unstrand
+  
+#If a summarizedExperiment object was chosen, the data can be accessed with three different accessors: assay for the data information, rowRanges to gets the range of values in each row and colData to get the sample information (patient, batch, sample type, etc)
+
+```{r}
+library(SummarizedExperiment) 
+# get expression matrix
+data <- assay(counts, "tpm_unstrand") %>% as.data.frame() %>% rownames_to_column("gene_id")
+
+
+# get genes information
+genes.info <- as.data.frame(rowRanges(counts))  #table 
+
+# get sample information
+sample.info <- as.data.frame(colData(counts))
+```
+
+
+```{r}
+dataPrep <- TCGAanalyze_Preprocessing( #performs array array intensity correlation to check for outliers
+    object = counts, 
+    cor.cut = 0.6,
+    datatype = "tpm_unstrand"
+)     
+
+
+```
+```{r}
+genes.info.hgnc <- genes.info %>% dplyr::select(gene_id, gene_name)
+
+hugo_tcga <- left_join(data, genes.info.hgnc) %>% 
+  group_by(gene_name) %>% 
+  summarise(across(where(is.numeric),list(median = median)))
+
+write_delim(hugo_tcga, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/TCGA_stratification/hugo_tcga_all_samples_060722.tsv", delim="\t")
+```
+
+Downstream analysis from https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/analysis.html
+```{r}
+samplesDown <- getResults(query,cols=c("cases")) # takes just the column called cases with the TCGA barcodes for the samples
+
+dataSmTP <- TCGAquery_SampleTypes( ## selection of tumor samples "TP"
+    barcode = samplesDown,
+    typesample = "TP"
+)
+
+dataPrep <- TCGAanalyze_Preprocessing(
+    object = query, 
+    cor.cut = 0.6,
+    datatype = "HTSeq - Counts"
+)                 
+dataNorm <- TCGAanalyze_Normalization(
+    tabDF = dataPrep,
+    geneInfo = geneInfoHT,
+    method = "gcContent"
+) 
+
+boxplot(dataPrep, outline = FALSE)
+```
+
+
+Biomart: retrieve HUGO gene symbols
+```{r}
+library(biomaRt)
+
+#To get the list of all the Ensembl mart available on the ensembl.org website
+listEnsembl()
+
+```
+```{r}
+ensembl = useEnsembl(biomart="ensembl") ##The "useEnsembl" function allow you to connect to a an ensembl website mart by specifying a BioMart and dataset parameters.
+
+species <- listDatasets(ensembl)# to get a list of available species (mart datasets) 	
+
+#to connect to Ensembl live gene mart human dataset (GRCh38)
+###ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl") 
+
+#or to create a mart of human dataset of the Ensembl GRCh37
+grch37 = useEnsembl(biomart="ensembl",GRCh=37, dataset="hsapiens_gene_ensembl") # only 37 can be specified for GRCh version = current version
+
+head(listFilters(grch37)) #The "listFilters" function will give you the list of available filters for a given mart and species:
+
+head(listAttributes(grch37)) #The "listAttributes" function will give you the list of the available attributes for a given mart and species:
+```
+```{r}
+#The "getBM" function allows you to build a BioMart query using a list of mart filters and attributes.
+ genes <- getBM(attributes=c('ensembl_gene_id','hgnc_symbol','ensembl_gene_id_version', 'external_gene_name'), mart = grch37)
+
+TCGA_genes <- counts[,1]# create tbl of gene id versions present in TCGA datasets 
+TCGA_genes <- substr(TCGA_genes$ensembl_gene_id_version, 1,15) %>% # truncate to 15 characters to remove decimals (check all ensembl IDs are 15 characters before the decimal as standard)
+      as.tibble() %>% 
+      rename(ensembl_gene_id=value)
+
+TCGA_genes_matched <- TCGA_genes %>% left_join(genes, by='ensembl_gene_id') # to match the gene id in the TCGA table to those in ensembl list
+
+
+```
+
+```{r}
+#matching named tcga genes back to tcga data 
+TCGA_genes_matched <-TCGA_genes_matched %>% dplyr::select(external_gene_name, ensembl_gene_id) 
+
+counts$ensembl_gene_id_version <- substr(counts$ensembl_gene_id_version, 1,15) 
+    # truncate to remove version number 
+counts <- counts %>%  rename(ensembl_gene_id=ensembl_gene_id_version)# rename to reflect that it no longer lists version
+
+
+counts.named <- left_join(counts, TCGA_genes_matched, by="ensembl_gene_id")
+
+nrow(counts.named[is.na(counts.named$external_gene_name),])
+
+missing_names <- counts.named %>% filter(is.na(external_gene_name))
+```
+```{r}
+counts.named <- counts.named %>% 
+  relocate(external_gene_name, .before = ensembl_gene_id) %>% 
+  dplyr::select(-ensembl_gene_id) %>% 
+  filter(!is.na(external_gene_name)) %>% 
+  write_delim(file="tcga-ov-first100.tsv", delim="\t")# need to deal with duplicated gene id - there are multiple versions of the same gene id so when I truncate to just gene id I end up with duplicated ids. Average out??
+```
+
+```{r}
+
+length(genes[genes$hgnc_symbol == "",]$hgnc_symbol) #26455 empty spaces (not NA) in HGNC list
+length(genes[genes$hgnc_symbol == "NA",]$hgnc_symbol) # 
+
+
+length(TCGA_genes[TCGA_genes$ensembl_gene_id %in% genes$ensembl_gene_id,]$ensembl_gene_id)
+
+TCGA_genes[!duplicated(TCGA_genes),] # no duplications
+
+nrow(TCGA_genes_matched[is.na(TCGA_genes_matched$external_gene_name),]) # 5770 in 
+
+#need to find out which genes are lacking external gene name and what to do with these
+#need to find out 
+#if genes in TCGA datasets are whole genome wide or just coding etc - if they have an ensembl ID they should have a gene name 
+#no duplicates in the ensemble gene ID version list from TCGA = good as don't need to figure out how to handle separate transcripts (EcoTyper can't handle duplicates)
+
+```
+
+```{r, filtering out unwanted (lowly expressed) genes}
+library(tximport)
+library(DESeq2)
+#check if you can do this on data that has already been normalised
+#counts<- data.frame(counts, row.names = 1)
+counts <- round(counts, 0) 
+ # change first columns to row names so rowSums can be used on the table
+
+keep <- rowSums(counts) > 5 # for each gene, compute total count and compare to threshold
+# keeping outcome in vector of 'logicals' (ie TRUE or FALSE, or NA)
+# summary of test outcome: number of genes in each class:
+table(keep, useNA="always") 
+
+# subset genes where test was TRUE
+filtCounts <- counts[keep,] 
+
+# check dimension of new count matrix
+dim(filtCounts)
+# few outliers affect distribution visualization
+boxplot(filtCounts, main="raw counts", las=2)
+```
+```{r}
+library(DelayedMatrixStats)
+library(sparseMatrixStats)
+# Raw counts mean expression Vs standard Deviation (SD)
+
+plot <- data.matrix(filtCounts, rownames.force = NA)
+
+#as mean increases standard variation increases
+#genes with high expression and more variance (top right) are going to appear more important than they are 
+plot(rowMeans(plot), rowSds(plot), 
+     main='Raw counts: sd vs mean', 
+     xlim=c(0,10000), # set limits in data
+     ylim=c(0,5000))
+```
+
+```{r}
+# Get log2 counts
+logcounts <- log2(filtCounts + 1)
+# summary(logcounts[,1]) # summary for first column
+# summary(logcounts) # summary for each column
+
+#We will check the distribution of read counts using a boxplot and add some colour to see if there is any difference between sample groups.
+
+
+# Check distributions of samples using boxplots
+boxplot(logcounts[,1:20],
+        xlab="",
+        ylab="Log2(Counts)",
+        las=2,
+        main="Log2(Counts)")
+# all fairly similar
+plot <- data.matrix(logcounts, rownames.force = NA)
+
+# Log2 counts standard deviation (sd) vs mean expression
+plot(rowMeans(plot), rowSds(plot), 
+     main='Log2 Counts: sd vs mean')
+#now the plot points downwards more, the more lowly expressed genes have more variance now though which could overinflate their importance
+```
+```{r}
+library(DESeq2)
+#Variance stabilizing transformation (VST) aims at generating a matrix of values for which variance is constant across the range of mean values, especially for low mean.
+
+#The vst function computes the fitted dispersion-mean relation, derives the transformation to apply and accounts for library size.
+
+vst_counts <- vst(data.matrix(filtCounts))
+
+# Check distributions of samples using boxplots
+boxplot(vst_counts, 
+        xlab="", 
+        ylab="VST counts",
+        las=2)
+
+# VST counts standard deviation (sd) vs mean expression
+plot(rowMeans(vst_counts), rowSds(vst_counts), 
+     main='VST counts: sd vs mean')
+
+```
+
+```{r}
+library(ggfortify)
+library(rnaseqGene)
+
+#apply a regularised log transformation
+filtCounts <-data.matrix(filtCounts, rownames.force = NA) # rlog takes a DESeqDataSet or matrix of counts as input so convert from dataframe to matrix
+rlogcounts <- rlog(filtCounts) #transforms the count data to the log2 scale, minimizing differences between samples for rows with small counts, and normalising with respect to library size. The rlog transformation produces a similar variance stabilizing effect as varianceStabilizingTransformation, though rlog is more robust in the case when the size factors vary widely. The transformation is useful when checking for outliers or as input for machine learning techniques such as clustering or linear discriminant analysis. rlog returns a RangedSummarizedExperiment object.
+# run PCA
+pcDat <- prcomp(t(rlogcounts)) # t transforms the data so the genes are columns and samples are rows (as required by prcomp), prcomp performs a principal components analysis on the given data matrix and returns the results as an object of class prcomp.
+# plot PCA
+autoplot(pcDat)
+
+#The plot shows us the first two principle components i.e. the relationship between the samples according to the two greatest sources of variation. If you were to colour the samples by treatment, time point or some other variable you changed/were testing in your experiment, ideally PC1 would be that variable, responsible for the largest source of variation. Sometime, particularly with more complex experiments with more than two experimental factors, or where there might be confounding factors, it is helpful to look at more principle components. eg You don't want to find that the date of RNA extracted was the biggest component in your PCA, confounding any effects of the test variables. Therefore you should gather the metadata and label these by sample to plot this on the graph also. 
+
+autoplot(pcDat,
+         data = sampleinfo, 
+         colour="Status", 
+         shape="TimePoint",
+         size=5)
+```
+#retrieving metadata:
+https://bioconductor.github.io/BiocWorkshops/public-data-resources-and-bioconductor.html#genomicdatacommons
+```{r}
+GenomicDataCommons::status() # check connectivity to GDC and functionality 
+```
+
+```{r}
+
+#The following code builds a manifest that can be used to guide the download of raw data. Here, filtering finds gene expression files quantified as raw counts using HTSeq from ovarian cancer patients
+ge_manifest = files() %>%
+    filter( ~ cases.project.project_id == 'TCGA-OV' &
+                type == 'gene_expression' &
+                analysis.workflow_type == 'HTSeq - Counts') %>%
+    manifest()
+```
+#After the 379 gene expression files specified in the query above. Using multiple processes to do the download very significantly speeds up the transfer in many cases. On a standard 1Gb connection, the following completes in about 30 seconds. The first time the data are downloaded, R will ask to create a cache directory (see ?gdc_cache for details of setting and interacting with the cache). Resulting downloaded files will be stored in the cache directory. Future access to the same files will be directly from the cache, alleviating multiple downloads.
+
+
+```{r}
+fnames = lapply(ge_manifest$id[1:20],gdcdata) # first 20 ID
+
+
+```
+
+#The GenomicDataCommons can access the significant clinical, demographic, biospecimen, and annotation information contained in the NCI GDC.
+unctionality for finding and accessing files and metadata can be divided into:
+
+Simple query constructors based on GDC API endpoints.
+A set of verbs that when applied, adjust filtering, field selection, and faceting (fields for aggregation) and result in a new query object (an endomorphism)
+A set of verbs that take a query and return results from the GDC
+In addition, there are exhiliary functions for asking the GDC API for information about available and default fields, slicing BAM files, and downloading actual data files. Here is an overview of functionality7.
+
+Creating a query
+projects()
+cases()
+files()
+annotations()
+Manipulating a query
+filter()
+facet()
+select()
+Introspection on the GDC API fields
+mapping()
+available_fields()
+default_fields()
+grep_fields()
+field_picker()
+available_values()
+available_expand()
+Executing an API call to retrieve query results
+results()
+count()
+response()
+Raw data file downloads
+gdcdata()
+transfer()
+gdc_client()
+Summarizing and aggregating field values (faceting)
+aggregations()
+Authentication
+gdc_token()
+BAM file slicing
+slicing()
+```
+
