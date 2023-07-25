@@ -1,0 +1,49 @@
+---
+title: "20230725_TCGA_OV_stratification"
+output: html_document
+date: "2023-07-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(here)
+library(readxl)
+```
+
+
+```{r TCGA 2011 paper}
+#specify data location using here() function
+#data <- read_csv(here("./datafolder/subfolder/datafile.csv"))
+
+#load BRCA1/2 data from Integrated Genomic Analyses of Ovarian Carcinoma (TCGA., 2011)
+gBRCA1_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx", 
+    sheet = "BRCA1_germline_mut")
+
+gBRCA2_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx", 
+    sheet = "BRCA2_germline_mut")
+
+sBRCA1_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx", 
+    sheet = "BRCA1_somatic_mut")
+
+sBRCA2_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx", 
+    sheet = "BRCA2_somatic_mut")
+```
+
+```{r Pancancer paper}
+
+BRCA_Wang_2017_all <- read_excel("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/2017_Genomic_consequences_Wang/41588_2017_BFng3849_MOESM366_ESM.xlsx") %>% 
+  clean_names() 
+
+BRCA_loss_Wang_2017 <- BRCA_Wang_2017 %>% 
+  filter(brca_status!="WT") # too many, filter for ovarian and check if methylation equates to low expression
+
+germline_mut_type_Maxwell_2017 <- read_excel("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/2017_BRCA_locusspecific_LOH_Maxwell/41467_2017_388_MOESM2_ESM.xlsx") %>% 
+  row_to_names(row_number = 1) %>% 
+  clean_names()  %>% filter(group=="TCGA",
+                            tumor_site=="Ovary")
+
+```
+
+
