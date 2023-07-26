@@ -33,17 +33,72 @@ sBRCA2_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/
 
 ```{r Pancancer paper}
 
-BRCA_Wang_2017_all <- read_excel("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/2017_Genomic_consequences_Wang/41588_2017_BFng3849_MOESM366_ESM.xlsx") %>% 
+#load supplementary files used in pancan paper to classify cases
+BRCA_Wang_2017_all <- read_excel(here("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/2017_Genomic_consequences_Wang/41588_2017_BFng3849_MOESM366_ESM.xlsx")) %>% 
   clean_names() 
 
 BRCA_loss_Wang_2017 <- BRCA_Wang_2017 %>% 
-  filter(brca_status!="WT") # too many, filter for ovarian and check if methylation equates to low expression
+  filter(brca_status!="WT") 
 
-germline_mut_type_Maxwell_2017 <- read_excel("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/2017_BRCA_locusspecific_LOH_Maxwell/41467_2017_388_MOESM2_ESM.xlsx") %>% 
+germline_mut_type_Maxwell_2017 <- read_excel(here("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/2017_BRCA_locusspecific_LOH_Maxwell/41467_2017_388_MOESM2_ESM.xlsx")) %>% 
   row_to_names(row_number = 1) %>% 
   clean_names()  %>% filter(group=="TCGA",
-                            tumor_site=="Ovary")
+                            tumor_site=="Ovary") 
 
+#load pancan classification data
+pancan_annotation <- read_excel(here("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/41586_2022_4789_MOESM5_ESM/Supplementary_Tables_58-64.xlsx"), 
+    sheet = "ST_58_Clinical_data_TCGA-OV") %>% 
+  clean_names() %>% 
+  group_by(status)
+
+#pull out BRCA1/2 loss cases 
+pancan_BRCA_LOF <- pancan_annotation %>% 
+  filter(status!="WT BRCA1/2",
+         status!="WT BRCA1/2+LOH",
+         status!="RAD51C Hypermethyl.")  
+
+tabyl(pancan_BRCA_LOF$myriadmy_choice) # 5 have a negative myriad score, could move these into the other group but I think BRCA1/2 status outranks myriad score clinically 
 ```
 
 
+```{r}
+tabyl(pancan_annotation$status) # numbers differ to the numbers reported in the supplementary methods file, missing 10 germline BRCA2 + LOH cases and 10 BRCA1 hypermethylation (BRCA1 promoter) cases and have gained 20 WT BRCA1/2+LOH (miscategorised)
+```
+
+
+```{r} 
+# trying to identify the missing BRCA1 promoter hypermethylation cases
+#list of low BRCA1 mRNA expression cases from cBioPortal
+BRCA1_lowexp_cBioPortal <- read_delim(here("Data/Raw/20230726_BRCA1_lowexp_cBioPortal.txt"), 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE) %>%  
+  clean_names() 
+ BRCA1_lowexp_cBioPortal <- rename(BRCA1_lowexp_cBioPortal, name = patient_id)
+
+cBio_pancan_low_BRCA1 <- semi_join(pancan_annotation, BRCA1_lowexp_cBioPortal, by = "name")
+
+   tabyl(pancan_low_BRCA1$status)
+   
+potential_hypermeth <- pancan_low_BRCA1 %>% 
+  filter(status == "WT BRCA1/2+LOH") # 8 samples with low BRCA1 expression in the WT+LOH category
+#each of these samples show high levels of BRCA1 promoter methlyation in cBioPortal so assume they are BRCA1 low expression due to hypermethylation and transfer to BRCA1/2 loss group 
+
+#adding in hypermethylated cases
+pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, potential_hypermeth)
+```
+```{r}
+#the rest of cases
+pancan_rest <- pancan_annotation %>% 
+  anti_join(pancan_BRCA_LOF, by = "name") %>% 
+  anti_join(potential_hypermeth, by = "name")
+
+#separate out by myriad score
+pancan_WT_HRD <- pancan_rest %>% 
+  filter(myriadmy_choice == "Positive") 
+
+pancan_WT_HRP <- pancan_rest %>% 
+  filter(myriadmy_choice == "Negative")
+
+pancan_NA <- pancan_rest %>%
+  filter(myriadmy_choice == "NA") # not sure where to put these - assume HRP or disregard (check which actually have mRNA data)
+```
