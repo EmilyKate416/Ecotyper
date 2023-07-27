@@ -1,0 +1,432 @@
+---
+title: "RNAseq analysis: Auranofin investigation"
+author: "Ashley Weir"
+date: "2023-06-12"
+output: 
+html_document
+
+editor_options: 
+  chunk_output_type: console
+---
+
+# Background
+*RNA seq analysis for An Truong of Brenton group, CRUK CI.*
+
+## Three cell lines analysed:
+- PE04
+- PE01s
+- PE01ms
+
+## Contrasts:
+- Treated with auranofin vs untreated (all oxygen conditions, all cell lines)
+- 5% vs 21% oxygen (hypoxic) (regardless of drug treatment)
+- Treated with auranofin vs untreated (at 21% oxygen - normal baseline)
+- Treated with auranofin vs untreated (at 5% oxygen - hypoxic baseline)
+
+## Data provided:
+- Raw counts generated using featureCounts by An
+- Raw counts and metadata sent by An via Brenton group Teams chat on 20230612 and 20230622.
+- Files stored locally at /Users/weir.a/Documents/PhD/Rstudio projects/brentonCopyNumberSignaturesOTTA_20230606/RNAseqForAn
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Packages.**
+
+```{r loadLibraries, message=FALSE, warning=FALSE}
+
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+library(limma)
+library(edgeR)
+library(DESeq2)
+
+```
+
+**Load data.**
+
+```{r loadData}
+
+rawCounts <- read.csv("~/Documents/PhD/Rstudio projects/brentonCopyNumberSignaturesOTTA_20230606/RNAseqForAn/SLX-22950.fc_counts.csv")
+
+meta <- read.csv("~/Documents/PhD/Rstudio projects/brentonCopyNumberSignaturesOTTA_20230606/RNAseqForAn/SLX22950_metadata.csv")
+
+```
+
+**Wrangle data.**
+
+```{r wrangleData}
+
+# reformat sequencing IDs
+colnames(rawCounts) <- str_sub(colnames(rawCounts), start = 1, end = 31)
+
+# make ID column rownames
+rawCounts <- rawCounts %>% 
+  column_to_rownames(var = "X") 
+
+# add HR status column to metadata
+meta <- meta %>% 
+  dplyr::mutate(hr_status = case_when(cell_line == "PEO1s" ~ "HRD", 
+                                      TRUE ~ "HRP"))
+
+```
+
+**Annotate genes.**
+
+```{r geneAnnotation}
+
+entrez <- rownames(rawCounts)
+colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL")
+geneIdMapExAn <- AnnotationDbi::select(org.Hs.eg.db, keys = entrez, columns = colGene, keytype = "ENTREZID")
+geneIdMapExAn <- geneIdMapExAn[!duplicated(geneIdMapExAn$ENTREZID), ]
+
+geneIdMapExAn <- geneIdMapExAn[geneIdMapExAn$ENTREZID %in% entrez, ]
+
+genesAn <-  geneIdMapExAn$ENTREZID
+
+rawCountsFinal <- rawCounts[genesAn, ]
+
+```
+
+**Create a DGE object for DE analysis.**
+
+```{r dgeObject}
+
+dgeUnTreAn <- DGEList(counts = rawCountsFinal, genes = geneIdMapExAn, samples = meta, group = meta$treatment) 
+
+```
+
+**Filter lowly expressed genes.**
+*Using manual filtering and the filterByExp() function*
+
+```{r}
+# filter lowly expressed genes
+cutoff <- 4
+drop <- which(apply(cpm(dgeUnTreAn), 1, max) < cutoff)
+dgeUnTreAnFil <- dgeUnTreAn[-drop, , keep.lib.sizes = FALSE] 
+dim(dgeUnTreAnFil) # number of genes left after manual filtering
+
+keep <- filterByExpr(dgeUnTreAnFil, group = dgeUnTreAnFil$samples$treatment)
+
+dgeUnTreAnFilExp <- dgeUnTreAnFil[keep, ,keep.lib.sizes = FALSE ]
+dim(dgeUnTreAnFilExp) # number of genes left after manual filtering and filterByExpr
+
+```
+
+```{r}
+
+boxplot(log(dgeUnTreAnFilExp$counts + 0.5), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at raw log counts
+boxplot(cpm(dgeUnTreAnFilExp$counts, log = TRUE), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at log cpm normalised counts
+
+plotSparsity(dgeUnTreAnFilExp$counts, normalized = TRUE)
+
+```
+
+**Normalisation.**
+
+```{r}
+
+# calculate normalisation factors (does not normalise)
+dgeUnTreAnFilExpNorm <- calcNormFactors(dgeUnTreAnFilExp)
+
+barplot(dgeUnTreAnFilExpNorm$samples$norm.factors, names = colnames(dgeUnTreAnFilExpNorm), las = 2)
+title("Barplot of normalisation factors")
+
+```
+
+**Contrast: Auranofin treated vs untreated.**
+*Define group for contrast and covariate interactions*
+
+```{r}
+ 
+group <-  interaction(dgeUnTreAnFilExpNorm$samples$treatment)
+groupCol <- group # you could just use the original interaction vector, but I like to make a new one that I will overlay colours on.
+levels(groupCol) <- c("#F8766D", "#00BFC4") # change levels to colour names/HEX codes.
+# untreated == turquoise (#00BFC4)
+# auranofin == tomato ("#F8766D")
+groupCol <- as.character(groupCol) # make sure R knows the colour replacements are characters.
+
+plotMDS(dgeUnTreAnFilExpNorm, col = groupCol, labels = NULL, pch = 20)
+legend("topright", legend = c("auranofin", "untreated"), fill =  c("#F8766D", "#00BFC4"))
+
+```
+
+```{r}
+
+# defining covariate interactions
+
+cellLine <- interaction(dgeUnTreAnFilExpNorm$samples$cell_line)
+cellLineCol <- cellLine 
+# Levels: PEO1ms PEO1s PEO4 
+levels(cellLineCol) <- c("darkorange", "cornflowerblue", "darkolivegreen3") 
+cellLineCol <- as.character(cellLineCol) 
+
+oxygen <- interaction(dgeUnTreAnFilExpNorm$samples$o2)
+oxygenCol <- oxygen
+# Levels: 5 21
+levels(oxygenCol) <- c("aquamarine", "aquamarine4")
+oxygenCol <- as.character(oxygenCol)
+
+hrStatus <- interaction(dgeUnTreAnFilExpNorm$samples$hr_status)
+hrStatusCol <- hrStatus
+# Levels: HRD HRP
+levels(hrStatusCol) <- c("brown1", "cadetblue1")
+hrStatusCol <- as.character(hrStatusCol)
+
+plotMDS(dgeUnTreAnFilExpNorm, col = cellLineCol, labels = NULL, pch = 20)
+legend("topright", legend = c("PEO1ms", "PEO1s", "PEO4"), fill =  c("darkorange", "cornflowerblue", "darkolivegreen3"))
+
+plotMDS(dgeUnTreAnFilExpNorm, col = oxygenCol, labels = NULL, pch = 20)
+legend("topright", legend = c("5", "21"), fill =  c("aquamarine", "aquamarine4"))
+
+plotMDS(dgeUnTreAnFilExpNorm, col = hrStatusCol, labels = NULL, pch = 20)
+legend("topright", legend = c("HRD", "HRP"), fill =  c("brown1", "cadetblue1"))
+
+```
+These MDS plots are *extremely* important. They show that most of your variation comes from the cell line used and the HR status (which is confounded with cell line). These covariates need to be included in our design matrix, since we are not trying to investigate differences between cell lines or HR status, we are primarily interested in drug treatment and oxygen concentration. As HR status is so heavily confounded by cell line (you only have one cell line to represent HRD), I will not include it as a covariate in the design matrix (but if you had more HRD cell lines, I would).
+
+**Define the design matrix.**
+
+```{r}
+
+# specify the model to be fitted
+modelMatrixAn <- model.matrix(~ 0 + group + cellLine + oxygen)
+# adjust for covariates including cellLine + oxygen
+```
+
+**Voom transformation.** 
+
+```{r}
+
+# voom transformation
+voomUnTrAn <- voom(dgeUnTreAnFilExpNorm, modelMatrixAn, plot = TRUE) 
+
+# look at diagnostic plots
+plotMDS(dgeUnTreAnFilExpNorm, col = groupCol, labels = NULL, pch = 20)
+legend("topright", legend = c("auranofin", "untreated"), fill =  c("#F8766D", "#00BFC4"))
+
+```
+
+**Fit linear model.**
+
+```{r}
+# fitting a linear model using weighted least squares for each gene
+fitUnTrAn <- lmFit(voomUnTrAn, modelMatrixAn)
+head(coef(fitUnTrAn))
+
+```
+
+**Define contrast.**
+*Compare treatment to untreated, meaning any DE/logFC you observe are in the treated group in reference to the untreated.*
+
+```{r}
+# comparison between groups (log-fold changes) are obtained as contrasts of these fitted linear models
+contrUnTrAn <- makeContrasts(groupauranofin - groupuntreated, levels = modelMatrixAn)
+contrUnTrAn
+tmpUnTrAn <- contrasts.fit(fitUnTrAn, contrasts = contrUnTrAn)
+
+```
+
+**Statistical testing.**
+```{r}
+tmpUnTrAn <- eBayes(tmpUnTrAn, robust = TRUE) # use robust emperical bayes for statitsical testing to account for hypervariable genes
+
+topTableUnTrAn <- topTable(tmpUnTrAn, sort.by = "P", n = Inf)
+head(topTableUnTrAn, 20) # look at top 20 DE genes (sorted by p value)
+
+write_csv(topTableUnTrAn, "topTableUnTrAn_allGenesDifferentialExpression_auranofinVsUntreated_anTruong_20230627.csv")
+
+# Total number of DE genes based on adjusted p value < 0.05
+length(which(topTableUnTrAn$adj.P.Val < 0.05))
+
+# Total number of DE genes based on adjusted p value < 0.05 and |logFC| >= 1.0
+length(which(topTableUnTrAn$adj.P.Val < 0.05 & abs(topTableUnTrAn$logFC) >= 1.0 ))
+
+# Total number of DE genes based on adjusted p value < 0.01 and |logFC| >= 1.0
+length(which(topTableUnTrAn$adj.P.Val < 0.01 & abs(topTableUnTrAn$logFC) >= 1.0 ))
+
+dtUnTrAn <- decideTests(tmpUnTrAn, p.value = 0.05, lfc = 1.0)
+summary(dtUnTrAn)
+
+```
+
+**Plots for DE contrast: auranofin vs untreated.**
+```{r}
+volcanoplot(tmpUnTrAn, coef = "groupauranofin - groupuntreated", highlight = 20, names = tmpUnTrAn$genes$SYMBOL, main = "Auranofin - untreated")
+
+limma::plotMA(tmpUnTrAn, coef = 1, status = dtUnTrAn[ ,"groupauranofin - groupuntreated"], hl.pch = 20, bg.col = "grey")
+o <- order(tmpUnTrAn$p.value[,"groupauranofin - groupuntreated"])
+x <- tmpUnTrAn$Amean
+y <- tmpUnTrAn$coefficients[,"groupauranofin - groupuntreated"]
+G <- tmpUnTrAn$genes$SYMBOL
+text(x[o[1:20]], y[o[1:20]],labels = G[o[1:20]]) # to show the top 20 DE gene symbols
+
+```
+
+**Gene ontology analyiss with Goana.**
+
+```{r}
+# subset de genes to include those of great significance and large-ish logFC
+genesDeUnTrAn <- topTableUnTrAn %>%
+  mutate(bigLogFC = case_when(logFC < -1.0 | logFC > 1.0 ~ "keep",
+                              TRUE ~ "discard")) %>% 
+  dplyr::filter(bigLogFC == "keep") %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(ENTREZID) 
+genesDeUnTrAn <- as.vector(genesDeUnTrAn)  
+
+## gene ontology
+goUnTrAn <- goana(genesDeUnTrAn)
+topGO(goUnTrAn)
+
+goUnTrAn$adj.P.Val <- p.adjust(goUnTrAn$P.ENTREZID, method="BH")
+
+goUnTrAn <- goUnTrAn %>% 
+  rownames_to_column(var = "goTerm")
+
+write_csv(goUnTrAn, "goUnTrAn_geneOntology_anTruong_20230627.csv")
+
+```
+
+**Contrast: 21% vs 5% oxygen.**
+*Define group for contrast and covariate interactions*
+
+```{r}
+ 
+group <-  interaction(dgeUnTreAnFilExpNorm$samples$o2)
+groupCol <- group # you could just use the original interaction vector, but I like to make a new one that I will overlay colours on.
+levels(groupCol) <- c("aquamarine", "aquamarine4") # change levels to colour names/HEX codes.
+# 5% == "aquamarine"
+# 21% == "aquamarine4"
+groupCol <- as.character(groupCol) # make sure R knows the colour replacements are characters.
+
+plotMDS(dgeUnTreAnFilExpNorm, col = groupCol, labels = NULL, pch = 20)
+legend("topright", legend = c("5%", "21%"), fill =  c("aquamarine", "aquamarine4"))
+
+```
+
+```{r}
+
+# defining covariate interactions
+
+# already have the cell line covariate, as defined in the above analysis, and have already looked at the HR status covariate above.
+
+treatment <- interaction(dgeUnTreAnFilExpNorm$samples$treatment)
+treatmentCol <- treatment
+# Levels: auranofin untreated
+levels(treatmentCol) <- c("#F8766D", "#00BFC4")
+treatmentCol <- as.character(treatmentCol)
+
+plotMDS(dgeUnTreAnFilExpNorm, col = hrStatusCol, labels = NULL, pch = 20)
+legend("topright", legend = c("auranofin", "untreated"), fill =  c("#F8766D", "#00BFC4"))
+
+```
+
+**Define the design matrix.**
+
+```{r}
+
+# specify the model to be fitted
+modelMatrixAn <- model.matrix(~ 0 + group + cellLine + treatment) # replace oxygen with treatment as a covariate, since we want to see if there are gene expression differences between oxygen condiitons first.
+# adjust for covariates including cellLine + treatment
+```
+
+**Voom transformation.** 
+
+```{r}
+
+# voom transformation
+voomOxyAn <- voom(dgeUnTreAnFilExpNorm, modelMatrixAn, plot = TRUE) 
+
+# look at diagnostic plots
+plotMDS(dgeUnTreAnFilExpNorm, col = groupCol, labels = NULL, pch = 20)
+legend("topright", legend = c("5%", "21%"), fill =  c("aquamarine", "aquamarine4"))
+
+```
+
+**Fit linear model.**
+
+```{r}
+# fitting a linear model using weighted least squares for each gene
+fitOxyAn <- lmFit(voomOxyAn, modelMatrixAn)
+head(coef(fitOxyAn))
+
+```
+
+**Define contrast.**
+*Compare hypoxia (5%) in reference to normoxia (21%), meaning any DE/logFC you observe are in the hypoxic group in reference to the normal.*
+
+```{r}
+# comparison between groups (log-fold changes) are obtained as contrasts of these fitted linear models
+contrOxyAn <- makeContrasts(group5 - group21, levels = modelMatrixAn) # hypoxic in reference to normal
+contrOxyAn
+tmpOxyAn <- contrasts.fit(fitOxyAn, contrasts = contrOxyAn)
+
+```
+
+**Statistical testing.**
+```{r}
+tmpOxyAn <- eBayes(tmpOxyAn, robust = TRUE) # use robust emperical bayes for statitsical testing to account for hypervariable genes
+
+topTableOxyAn <- topTable(tmpOxyAn, sort.by = "P", n = Inf)
+head(topTableOxyAn, 20) # look at top 20 DE genes (sorted by p value)
+
+write_csv(topTableOxyAn, "topTableOxyAn_allGenesDifferentialExpression_hypoxiaVsNormoxia_anTruong_20230627.csv")
+
+# Total number of DE genes based on adjusted p value < 0.05
+length(which(topTableOxyAn$adj.P.Val < 0.05))
+
+# Total number of DE genes based on adjusted p value < 0.05 and |logFC| >= 1.0
+length(which(topTableOxyAn$adj.P.Val < 0.05 & abs(topTableOxyAn$logFC) >= 1.0 ))
+
+# Total number of DE genes based on adjusted p value < 0.01 and |logFC| >= 1.0
+length(which(topTableOxyAn$adj.P.Val < 0.01 & abs(topTableOxyAn$logFC) >= 1.0 ))
+
+dtOxyAn <- decideTests(tmpOxyAn, p.value = 0.05, lfc = 1.0)
+summary(dtOxyAn)
+
+```
+
+**Plots for DE contrast: auranofin vs untreated.**
+```{r}
+volcanoplot(tmpOxyAn, coef = "group5 - group21", highlight = 6, names = tmpOxyAn$genes$SYMBOL, main = "Hypoxia - normoxia")
+
+limma::plotMA(tmpOxyAn, coef = 1, status = dtOxyAn[ ,"group5 - group21"], hl.pch = 20, bg.col = "grey")
+o <- order(tmpOxyAn$p.value[,"group5 - group21"])
+x <- tmpOxyAn$Amean
+y <- tmpOxyAn$coefficients[,"group5 - group21"]
+G <- tmpOxyAn$genes$SYMBOL
+text(x[o[1:6]], y[o[1:6]],labels = G[o[1:6]]) # to show the top 6 DE gene symbols
+
+```
+
+**Gene ontology analyiss with Goana.**
+
+```{r}
+# subset de genes to include those of great significance and large-ish logFC
+genesDeOxyAn <- topTableOxyAn %>%
+  mutate(bigLogFC = case_when(logFC < -1.0 | logFC > 1.0 ~ "keep",
+                              TRUE ~ "discard")) %>% 
+  dplyr::filter(bigLogFC == "keep") %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(ENTREZID) 
+genesDeOxyAn <- as.vector(genesDeOxyAn)  
+
+## gene ontology
+goOxyAn <- goana(genesDeOxyAn)
+topGO(goOxyAn)
+
+goOxyAn$adj.P.Val <- p.adjust(goOxyAn$P.ENTREZID, method="BH")
+
+goOxyAn <- goOxyAn %>% 
+  rownames_to_column(var = "goTerm")
+
+write_csv(goOxyAn, "goOxyAn_geneOntology_anTruong_20230627.csv")
+
+```
+

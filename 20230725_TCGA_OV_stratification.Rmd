@@ -18,16 +18,16 @@ library(readxl)
 #data <- read_csv(here("./datafolder/subfolder/datafile.csv"))
 
 #load BRCA1/2 data from Integrated Genomic Analyses of Ovarian Carcinoma (TCGA., 2011)
-gBRCA1_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx", 
+gBRCA1_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx"), 
     sheet = "BRCA1_germline_mut")
 
-gBRCA2_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx", 
+gBRCA2_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx"), 
     sheet = "BRCA2_germline_mut")
 
-sBRCA1_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx", 
+sBRCA1_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx"), 
     sheet = "BRCA1_somatic_mut")
 
-sBRCA2_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx", 
+sBRCA2_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx"), 
     sheet = "BRCA2_somatic_mut")
 ```
 
@@ -37,12 +37,13 @@ sBRCA2_cases<- read_excel("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/
 BRCA_Wang_2017_all <- read_excel(here("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/2017_Genomic_consequences_Wang/41588_2017_BFng3849_MOESM366_ESM.xlsx")) %>% 
   clean_names() 
 
-BRCA_loss_Wang_2017 <- BRCA_Wang_2017 %>% 
-  filter(brca_status!="WT") 
+BRCA_loss_Wang_2017 <- BRCA_Wang_2017_all %>% 
+  dplyr::filter(brca_status!="WT") 
 
 germline_mut_type_Maxwell_2017 <- read_excel(here("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/2017_BRCA_locusspecific_LOH_Maxwell/41467_2017_388_MOESM2_ESM.xlsx")) %>% 
   row_to_names(row_number = 1) %>% 
-  clean_names()  %>% filter(group=="TCGA",
+  clean_names()  %>% 
+  dplyr::filter(group=="TCGA",
                             tumor_site=="Ovary") 
 
 #load pancan classification data
@@ -53,7 +54,7 @@ pancan_annotation <- read_excel(here("Data/Raw/2022_A_pan-cancer_compendium_of_C
 
 #pull out BRCA1/2 loss cases 
 pancan_BRCA_LOF <- pancan_annotation %>% 
-  filter(status!="WT BRCA1/2",
+ dplyr::filter(status!="WT BRCA1/2",
          status!="WT BRCA1/2+LOH",
          status!="RAD51C Hypermethyl.")  
 
@@ -77,28 +78,51 @@ BRCA1_lowexp_cBioPortal <- read_delim(here("Data/Raw/20230726_BRCA1_lowexp_cBioP
 
 cBio_pancan_low_BRCA1 <- semi_join(pancan_annotation, BRCA1_lowexp_cBioPortal, by = "name")
 
-   tabyl(pancan_low_BRCA1$status)
+   tabyl(cBio_pancan_low_BRCA1$status)
    
-potential_hypermeth <- pancan_low_BRCA1 %>% 
-  filter(status == "WT BRCA1/2+LOH") # 8 samples with low BRCA1 expression in the WT+LOH category
+potential_hypermeth <- cBio_pancan_low_BRCA1 %>% 
+  dplyr::filter(status == "WT BRCA1/2+LOH") # 8 samples with low BRCA1 expression in the WT+LOH category
 #each of these samples show high levels of BRCA1 promoter methlyation in cBioPortal so assume they are BRCA1 low expression due to hypermethylation and transfer to BRCA1/2 loss group 
 
+#change status
+potential_hypermeth <- potential_hypermeth %>% 
+ mutate(status = replace(status, status == "WT BRCA1/2+LOH", "BRCA1 Hypermethyl.")) #conditional mutate
+
 #adding in hypermethylated cases
-pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, potential_hypermeth)
+pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, potential_hypermeth) %>% 
+  mutate(contrast_group = "BRCA1/2_loss")
+
+
 ```
+
+
 ```{r}
 #the rest of cases
 pancan_rest <- pancan_annotation %>% 
-  anti_join(pancan_BRCA_LOF, by = "name") %>% 
-  anti_join(potential_hypermeth, by = "name")
+  anti_join(pancan_BRCA_LOF, by = "name") 
 
 #separate out by myriad score
 pancan_WT_HRD <- pancan_rest %>% 
-  filter(myriadmy_choice == "Positive") 
+  dplyr::filter(myriadmy_choice == "Positive") %>% 
+  mutate(contrast_group = "HRD_high")
 
 pancan_WT_HRP <- pancan_rest %>% 
-  filter(myriadmy_choice == "Negative")
+  dplyr::filter(myriadmy_choice == "Negative") %>% 
+  mutate(contrast_group = "HRD_low")
 
 pancan_NA <- pancan_rest %>%
-  filter(myriadmy_choice == "NA") # not sure where to put these - assume HRP or disregard (check which actually have mRNA data)
+  dplyr::filter(myriadmy_choice == "NA") %>% 
+  mutate(contrast_group = "NA") # not sure where to put these - assume HRP or disregard (check which actually have mRNA data)
 ```
+
+
+```{r}
+pancan_contrast <- full_join(pancan_BRCA_LOF, pancan_WT_HRD) %>% 
+  full_join(pancan_WT_HRP) %>% 
+  full_join(pancan_NA)
+```
+
+```{r}
+meta <- read_csv("./Data/Processed/20230727_clinical.csv")
+```
+
