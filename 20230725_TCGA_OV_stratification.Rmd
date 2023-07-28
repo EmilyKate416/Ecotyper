@@ -19,16 +19,24 @@ library(readxl)
 
 #load BRCA1/2 data from Integrated Genomic Analyses of Ovarian Carcinoma (TCGA., 2011)
 gBRCA1_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx"), 
-    sheet = "BRCA1_germline_mut")
+    sheet = "BRCA1_germline_mut") %>% 
+   row_to_names(row_number = 2) %>% 
+  clean_names() 
 
 gBRCA2_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx"), 
-    sheet = "BRCA2_germline_mut")
+    sheet = "BRCA2_germline_mut") %>% 
+   row_to_names(row_number = 2) %>% 
+  clean_names() 
 
 sBRCA1_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx"), 
-    sheet = "BRCA1_somatic_mut")
+    sheet = "BRCA1_somatic_mut") %>% 
+   row_to_names(row_number = 2) %>% 
+  clean_names() 
 
 sBRCA2_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_TCGA/20230724_BRCA_data_from_Integrated_Genomic_Analyses_of_Ov_TCGA_2011.xlsx"), 
-    sheet = "BRCA2_somatic_mut")
+    sheet = "BRCA2_somatic_mut") %>% 
+   row_to_names(row_number = 2) %>% 
+  clean_names() 
 ```
 
 ```{r Pancancer paper}
@@ -52,13 +60,6 @@ pancan_annotation <- read_excel(here("Data/Raw/2022_A_pan-cancer_compendium_of_C
   clean_names() %>% 
   group_by(status)
 
-#pull out BRCA1/2 loss cases 
-pancan_BRCA_LOF <- pancan_annotation %>% 
- dplyr::filter(status!="WT BRCA1/2",
-         status!="WT BRCA1/2+LOH",
-         status!="RAD51C Hypermethyl.")  
-
-tabyl(pancan_BRCA_LOF$myriadmy_choice) # 5 have a negative myriad score, could move these into the other group but I think BRCA1/2 status outranks myriad score clinically 
 ```
 
 
@@ -66,9 +67,8 @@ tabyl(pancan_BRCA_LOF$myriadmy_choice) # 5 have a negative myriad score, could m
 tabyl(pancan_annotation$status) # numbers differ to the numbers reported in the supplementary methods file, missing 10 germline BRCA2 + LOH cases and 10 BRCA1 hypermethylation (BRCA1 promoter) cases and have gained 20 WT BRCA1/2+LOH (miscategorised)
 ```
 
+```{r identify the missing BRCA1 promoter hypermethylation cases} 
 
-```{r} 
-# trying to identify the missing BRCA1 promoter hypermethylation cases
 #list of low BRCA1 mRNA expression cases from cBioPortal
 BRCA1_lowexp_cBioPortal <- read_delim(here("Data/Raw/20230726_BRCA1_lowexp_cBioPortal.txt"), 
     delim = "\t", escape_double = FALSE, 
@@ -79,19 +79,58 @@ BRCA1_lowexp_cBioPortal <- read_delim(here("Data/Raw/20230726_BRCA1_lowexp_cBioP
 cBio_pancan_low_BRCA1 <- semi_join(pancan_annotation, BRCA1_lowexp_cBioPortal, by = "name")
 
    tabyl(cBio_pancan_low_BRCA1$status)
-   
+
 potential_hypermeth <- cBio_pancan_low_BRCA1 %>% 
   dplyr::filter(status == "WT BRCA1/2+LOH") # 8 samples with low BRCA1 expression in the WT+LOH category
-#each of these samples show high levels of BRCA1 promoter methlyation in cBioPortal so assume they are BRCA1 low expression due to hypermethylation and transfer to BRCA1/2 loss group 
+#each of these samples show high levels of BRCA1 promoter methylation in cBioPortal so assume they are BRCA1 low expression due to hypermethylation and transfer to BRCA1/2 loss group 
 
 #change status
 potential_hypermeth <- potential_hypermeth %>% 
  mutate(status = replace(status, status == "WT BRCA1/2+LOH", "BRCA1 Hypermethyl.")) #conditional mutate
 
+
+#pull out BRCA1/2 loss cases 
+pancan_BRCA_LOF <- pancan_annotation %>% 
+ dplyr::filter(status!="WT BRCA1/2",
+         status!="WT BRCA1/2+LOH",
+         status!="RAD51C Hypermethyl.")  
+
 #adding in hypermethylated cases
 pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, potential_hypermeth) %>% 
   mutate(contrast_group = "BRCA1/2_loss")
+```
 
+```{r check numbers}
+tabyl(pancan_BRCA_LOF$status) 
+
+tabyl(pancan_BRCA_LOF$myriadmy_choice) # 5 have a negative myriad score, could move these into the other group but I think BRCA1/2 status outranks myriad score clinically
+
+```
+
+
+```{r, identifying missing gBRCA2+LOH cases}
+gBRCA2_Wang <- BRCA_loss_Wang_2017 %>%  
+  dplyr::filter(brca_status == "BRCA2.Germline") %>% 
+  rename(name = case_id)
+
+#TCGA-24-1562, TCGA-13-1498, TCGA-24-2293, TCGA-24-1463 are gBRCA2 but not LOH according to the TCGA 2011 paper 
+
+potential_gBRCA2LOH <- gBRCA2_Wang %>% 
+  subset(name!="TCGA-24-1562" & 
+         name!="TCGA-13-1498" & 
+         name!="TCGA-24-2293" & 
+         name!="TCGA-24-1463")
+
+missing_gBRCA2LOH <- anti_join(potential_gBRCA2LOH, pancan_BRCA_LOF, by = "name") # only TCGA-13-0913 is missing from BRCA loss group...it is present, just with an a on the end TCGA-13-0913-a
+
+#look in TCGA 2011 paper for additional gBRCA2 cases
+gBRCA2_cases <- gBRCA2_cases %>% 
+  rename(name = case_id)
+
+potential_gBRCA2LOH <- anti_join(gBRCA2_cases, pancan_annotation, by = "name") #  TCGA-24-2293 not present in the pancancer list at all
+
+potential_gBRCA2LOH <- anti_join(pancan_annotation, gBRCA2_cases, by = "name")  
+potential_gBRCA2LOH <-  anti_join(pancan_annotation, potential_gBRCA2LOH, by = "name") # 	"TCGA-13-0900" is gBRCA2 + LOH and "TCGA-23-1026" is gBRCA but diploid in 2011 paper, check likely impact of their mutations
 
 ```
 
