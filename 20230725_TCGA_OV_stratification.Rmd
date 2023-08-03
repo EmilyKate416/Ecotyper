@@ -52,7 +52,8 @@ germline_mut_type_Maxwell_2017 <- read_excel(here("Data/Raw/2022_A_pan-cancer_co
   row_to_names(row_number = 1) %>% 
   clean_names()  %>% 
   dplyr::filter(group=="TCGA",
-                            tumor_site=="Ovary") 
+                            tumor_site=="Ovary") %>% 
+  as.data.frame()
 
 #load pancan classification data
 pancan_annotation <- read_excel(here("Data/Raw/2022_A_pan-cancer_compendium_of_CIN/41586_2022_4789_MOESM5_ESM/Supplementary_Tables_58-64.xlsx"), 
@@ -85,7 +86,7 @@ potential_hypermeth <- cBio_pancan_low_BRCA1 %>%
 #each of these samples show high levels of BRCA1 promoter methylation in cBioPortal so assume they are BRCA1 low expression due to hypermethylation and transfer to BRCA1/2 loss group 
 
 #change status
-potential_hypermeth <- potential_hypermeth %>% 
+missing_hypermeth <- potential_hypermeth %>% 
  mutate(status = replace(status, status == "WT BRCA1/2+LOH", "BRCA1 Hypermethyl.")) #conditional mutate
 
 
@@ -95,17 +96,10 @@ pancan_BRCA_LOF <- pancan_annotation %>%
          status!="WT BRCA1/2+LOH",
          status!="RAD51C Hypermethyl.")  
 
-#adding in hypermethylated cases
-pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, potential_hypermeth) %>% 
-  mutate(contrast_group = "BRCA1/2_loss")
-```
-
-```{r check numbers}
-tabyl(pancan_BRCA_LOF$status) 
-
-tabyl(pancan_BRCA_LOF$myriadmy_choice) # 5 have a negative myriad score, could move these into the other group but I think BRCA1/2 status outranks myriad score clinically
 
 ```
+
+
 
 
 ```{r, identifying missing gBRCA2+LOH cases}
@@ -130,10 +124,47 @@ gBRCA2_cases <- gBRCA2_cases %>%
 potential_gBRCA2LOH <- anti_join(gBRCA2_cases, pancan_annotation, by = "name") #  TCGA-24-2293 not present in the pancancer list at all
 
 potential_gBRCA2LOH <- anti_join(pancan_annotation, gBRCA2_cases, by = "name")  
-potential_gBRCA2LOH <-  anti_join(pancan_annotation, potential_gBRCA2LOH, by = "name") # 	"TCGA-13-0900" is gBRCA2 + LOH and "TCGA-23-1026" is gBRCA but diploid in 2011 paper, check likely impact of their mutations
-
+potential_gBRCA2LOH <-  anti_join(pancan_annotation, potential_gBRCA2LOH, by = "name") # 	in TCGA 2011 "TCGA-13-0900" is gBRCA2 + LOH,  TCGA-23-1026, TCGA-23-1026 and  TCGA-13-1512 are gBRCA2 but diploid, check likely impact of their mutations
+#TCGA-13-1512 is a double mutant with gBRCA1+LOH and gBRCA2- keep in the original gBRCA1+LOH group
 ```
 
+```{r}
+#look in Maxwell 2017
+
+germline_maxwell_brca2 <-   separate(germline_mut_type_Maxwell_2017, mutation, into = c("brca_status", "mutation"),  sep = " ") %>%  
+  dplyr::filter(brca_status == "BRCA2") %>% 
+  rename(name = tumor_id) # some have two spaces as delimiter so the mutation info has been discarded in these cases but is in the original table
+
+potential_gBRCA2LOH <- anti_join(germline_maxwell_brca2, pancan_BRCA_LOF) #12 samples with germline BRCA2 mutations that aren't listed as BRCA2 in pancancer annotation
+#check if present in the pancancer dataset 
+missing_gBRCA2LOH <- subset(pancan_annotation, name %in% c("TCGA-13-0751",
+                                      "TCGA-13-0913",
+                                      "TCGA-20-1685",
+                                      "TCGA-23-1021",
+                                      "TCGA-23-1029",
+                                      "TCGA-23-1114",
+                                      "TCGA-23-2084",
+                                      "TCGA-24-1849",
+                                      "TCGA-24-2293",
+                                      "TCGA-25-1314",
+                                      "TCGA-29-1784",
+                                      "TCGA-59-A5PD"))  %>% 
+  mutate(status = replace(status, status == "WT BRCA1/2+LOH", "germline BRCA2+LOH")) # 10 of the samples are present but listed as WT + LOH
+#change status
+
+#adding in hypermethylated and gBRCA2+LOH cases
+pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, missing_hypermeth) 
+pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, missing_gBRCA2LOH) %>% 
+  mutate(contrast_group = "BRCA1/2_loss")
+
+
+```
+```{r check numbers}
+tabyl(pancan_BRCA_LOF$status) 
+
+tabyl(pancan_BRCA_LOF$myriadmy_choice) # 5 have a negative myriad score, could move these into the other group but I think BRCA1/2 status outranks myriad score clinically
+
+```
 
 ```{r}
 #the rest of cases
@@ -159,6 +190,8 @@ pancan_NA <- pancan_rest %>%
 pancan_contrast <- full_join(pancan_BRCA_LOF, pancan_WT_HRD) %>% 
   full_join(pancan_WT_HRP) %>% 
   full_join(pancan_NA)
+
+tabyl(pancan_contrast$status)
 ```
 
 ```{r}
