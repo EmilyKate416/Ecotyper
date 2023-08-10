@@ -74,7 +74,8 @@ tabyl(pancan_annotation$status) # numbers differ to the numbers reported in the 
 BRCA1_lowexp_cBioPortal <- read_delim(here("Data/Raw/20230726_BRCA1_lowexp_cBioPortal.txt"), 
     delim = "\t", escape_double = FALSE, 
     trim_ws = TRUE) %>%  
-  clean_names() 
+  clean_names() #append = FALSE to write over existing file, 
+
  BRCA1_lowexp_cBioPortal <- rename(BRCA1_lowexp_cBioPortal, name = patient_id)
 
 cBio_pancan_low_BRCA1 <- semi_join(pancan_annotation, BRCA1_lowexp_cBioPortal, by = "name")
@@ -193,8 +194,10 @@ pancan_contrast <- full_join(pancan_BRCA_LOF, pancan_WT_HRD) %>%
 
 tabyl(pancan_contrast$status)
 ```
-
 ```{r}
-meta <- read_csv("./Data/Processed/20230727_clinical.csv")
+#save a copy of the pancancer clincal data with the contrast labels added
+ write_delim(pancan_contrast, "./Data/Processed/20230803_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv", delim = "\t") # save with contrast groups added
 ```
+
+
 
