@@ -12,6 +12,16 @@ library(here)
 library(readxl)
 ```
 
+#Data required:
+- *Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_clinical.csv* clinical data from GDC download produced in temp_GDC_download_serverversion.Rmd (jblab server002)
+- additional datasets from:
+-Wang, Y. K. et al. Genomic consequences of aberrant DNA repair mechanisms stratify ovarian cancer histotypes. Nat. Genet. 49, 856–864 (2017).
+-Maxwell, K. N. et al. BRCA locus-specific loss of heterozygosity in germline BRCA1 and BRCA2 carriers. Nat. Commun. 8, 319 (2017).
+-Drews, R.M., Hernando, B., Tarabichi, M. et al. A pan-cancer compendium of chromosomal instability. Nature 606, 976–983 (2022). 
+-Cancer Genome Atlas Research Network. Integrated genomic analyses of ovarian carcinoma. Nature 474, 609–615 (2011).
+- location "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw"
+
+
 
 ```{r TCGA 2011 paper}
 #specify data location using here() function
@@ -195,8 +205,8 @@ pancan_contrast <- full_join(pancan_BRCA_LOF, pancan_WT_HRD) %>%
 tabyl(pancan_contrast$status)
 ```
 ```{r}
-#save a copy of the pancancer clincal data with the contrast labels added
- write_delim(pancan_contrast, "./Data/Processed/20230803_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv", delim = "\t") # save with contrast groups added
+#save a copy of the pancancer clinical data with the contrast labels added
+ write_delim(pancan_contrast, "./Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv", delim = "\t") # save with contrast groups added
 ```
 
 
