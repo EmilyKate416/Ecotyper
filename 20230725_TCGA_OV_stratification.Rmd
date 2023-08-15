@@ -19,9 +19,11 @@ library(readxl)
 -Maxwell, K. N. et al. BRCA locus-specific loss of heterozygosity in germline BRCA1 and BRCA2 carriers. Nat. Commun. 8, 319 (2017).
 -Drews, R.M., Hernando, B., Tarabichi, M. et al. A pan-cancer compendium of chromosomal instability. Nature 606, 976–983 (2022). 
 -Cancer Genome Atlas Research Network. Integrated genomic analyses of ovarian carcinoma. Nature 474, 609–615 (2011).
+-Takaya, H., Nakai, H., Takamatsu, S. et al. Homologous recombination deficiency status-based classification of high-grade serous ovarian carcinoma. Sci Rep 10, 2757 (2020).
+-Shah, J.B., Pueschl, D., Wubbenhorst, B. et al. Analysis of matched primary and recurrent BRCA1/2 mutation-associated tumors identifies recurrence-specific drivers. Nat Commun 13, 6728 (2022).
 - location "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw"
 
-
+- *20230815_rnaseq_cases_missing_from_pancan.csv* produced in "20230815_DGE.Rmd"
 
 ```{r TCGA 2011 paper}
 #specify data location using here() function
@@ -47,6 +49,10 @@ sBRCA2_cases<- read_excel(here("Data/Raw/2011_Integrated_genomic_analyses_of_Ov_
     sheet = "BRCA2_somatic_mut") %>% 
    row_to_names(row_number = 2) %>% 
   clean_names() 
+
+TCGA_all <- full_join(gBRCA1_cases, gBRCA2_cases) %>% 
+  full_join(sBRCA1_cases) %>% 
+  full_join(sBRCA2_cases)
 ```
 
 ```{r Pancancer paper}
@@ -210,4 +216,32 @@ tabyl(pancan_contrast$status)
 ```
 
 
+#import list of TCGA OV cases with RNAseq data that don't match a label in the pancancer dataset
+
+```{r}
+cases_missing_labels <- read_delim("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.tsv", delim = "\t") %>% 
+  rename(case_id = submitter_id)
+```
+
+```{r}
+missing_search_1 <- semi_join( BRCA_Wang_2017_all,cases_missing_labels) #17 cases present in the BRCA_Wang dataset
+
+HRD_survival_2020 <- readxl::read_excel("Data/Raw/2020_Homologous recombination deficiency status-based classification of high-grade serous ovarian carcinoma/20230725_supp_ov_table_extracted_HRD_survival.xlsx", 
+    sheet = "Table002 (Page 7)") %>% 
+  row_to_names(row_number = 1) %>% 
+  clean_names() %>% 
+  rename(case_id = patient_id)
+
+missing_search_2 <- semi_join(HRD_survival_2020, cases_missing_labels) 
+
+missing_search_3 <- semi_join(TCGA_all, cases_missing_labels) # only 1 case present in the TCGA 2011 BRCA1/2 loss annotation TCGA-24-2293, a gBRCA2 case
+
+```
+```{r}
+#reload the cases_missing_labels list annotated using Wang 2017 and Takaya 2020 annotation
+cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv")
+
+gBRCA_Shah_2022 <- read_excel("Data/Raw/2022_Analysis_of_matched_primary_and_recurrent_BRCA12/41467_2022_34523_MOESM14_ESM.xlsx", sheet = "TCGAOvarian_gBRCA") 
+WT_Shah_2022 <- read_excel("Data/Raw/2022_Analysis_of_matched_primary_and_recurrent_BRCA12/41467_2022_34523_MOESM14_ESM.xlsx", sheet = "TCGAOvarian_HR-WT") 
+```
 

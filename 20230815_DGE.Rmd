@@ -79,6 +79,19 @@ primary_samples <- anti_join(names, recurrent_samples) %>%
 pancan_contrasts$submitter_id <- pancan_contrasts$submitter_id %>%  
   str_trunc(12, "right", ellipsis = "")
 
-filtered_pancan <- left_join(primary_samples, pancan_contrasts)
+filtered_pancan <- left_join(primary_samples, pancan_contrasts) 
+
+# pull out cases not present in the pancancer table
+cases_missing_labels <- filtered_pancan %>% 
+  filter(is.na(cx3)) %>% 
+  select(submitter_id) %>% 
+  write_delim("./Data/Processed/20230815_rnaseq_cases_missing_from_pancan.tsv", delim = "\t")
 
 ```
+
+```{r}
+#reload the cases_missing_labels list annotated using Wang 2017 and Takaya 2020 annotation
+cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv")
+
+```
+
