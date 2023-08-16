@@ -91,7 +91,9 @@ cases_missing_labels <- filtered_pancan %>%
 
 ```{r}
 #reload the cases_missing_labels list annotated using Wang 2017 and Takaya 2020 annotation
-cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv")
+cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv") %>% 
+  select("submitter_id", "contrast_group")
 
+#add them into the pancancer annotation list and join to meta data for the DGE
 ```
 

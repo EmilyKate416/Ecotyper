@@ -239,9 +239,27 @@ missing_search_3 <- semi_join(TCGA_all, cases_missing_labels) # only 1 case pres
 ```
 ```{r}
 #reload the cases_missing_labels list annotated using Wang 2017 and Takaya 2020 annotation
-cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv")
+cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv") %>% 
+  rename(tcga_tumor = submitter_id)
 
-gBRCA_Shah_2022 <- read_excel("Data/Raw/2022_Analysis_of_matched_primary_and_recurrent_BRCA12/41467_2022_34523_MOESM14_ESM.xlsx", sheet = "TCGAOvarian_gBRCA") 
-WT_Shah_2022 <- read_excel("Data/Raw/2022_Analysis_of_matched_primary_and_recurrent_BRCA12/41467_2022_34523_MOESM14_ESM.xlsx", sheet = "TCGAOvarian_HR-WT") 
+#HRD classification from Shah 2022
+gBRCA_Shah_2022 <- read_excel("Data/Raw/2022_Analysis_of_matched_primary_and_recurrent_BRCA12/41467_2022_34523_MOESM14_ESM.xlsx", sheet = "TCGAOvarian_gBRCA") %>% 
+  clean_names() 
+
+gBRCA_Shah_2022$tcga_tumour <- gBRCA_Shah_2022$tcga_tumor %>%  
+  str_trunc(12, ellipsis = "") # shorten name 
+
+WT_Shah_2022 <- read_excel("Data/Raw/2022_Analysis_of_matched_primary_and_recurrent_BRCA12/41467_2022_34523_MOESM14_ESM.xlsx", sheet = "TCGAOvarian_HR-WT") %>% 
+  clean_names()
+
+WT_Shah_2022$tcga_tumor <- WT_Shah_2022$tcga_tumor %>% 
+  str_trunc(12, ellipsis = "")
+
+# TCGA-25-1328 listed as WT in Shah 2022, other than that, doesn't provide additional labels
+
+```
+
+```{r}
+left_join(cases_missing_labels, gBRCA_Shah_2022)
 ```
 
