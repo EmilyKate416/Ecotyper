@@ -48,6 +48,9 @@ pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCG
                     escape_double = FALSE, 
                     trim_ws = TRUE) %>% 
   dplyr::rename(submitter_id = name)
+
+pancan_contrasts$submitter_id <- pancan_contrasts$submitter_id %>% 
+  str_trunc(12, "right", ellipsis = "") # some samples have additional letters at the end (unsure if this is vial number), remove these letters from name
 ```
 
 **Wrangle data**
@@ -82,18 +85,32 @@ pancan_contrasts$submitter_id <- pancan_contrasts$submitter_id %>%
 filtered_pancan <- left_join(primary_samples, pancan_contrasts) 
 
 # pull out cases not present in the pancancer table
-cases_missing_labels <- filtered_pancan %>% 
+#cases_missing_labels <- filtered_pancan %>% 
   filter(is.na(cx3)) %>% 
-  select(submitter_id) %>% 
+  dplyr::select(submitter_id) %>% 
   write_delim("./Data/Processed/20230815_rnaseq_cases_missing_from_pancan.tsv", delim = "\t")
 
 ```
 
 ```{r}
 #reload the cases_missing_labels list annotated using Wang 2017 and Takaya 2020 annotation
-cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv") %>% 
-  select("submitter_id", "contrast_group")
+cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv")
 
-#add them into the pancancer annotation list and join to meta data for the DGE
+pancan_contrasts_shortened <- pancan_contrasts %>% 
+  dplyr::select("submitter_id", "contrast_group") #only need the contrast info for now
+ 
+meta_plus_contrast <- cases_missing_labels %>% 
+  dplyr::select("submitter_id", "contrast_group") %>% 
+  full_join(meta)
+
+# add in the contrast group info from cases_missing_labels into meta_plus_contrast group
+
+meta_plus_contrast <- meta_plus_contrast %>%  
+  left_join(pancan_contrasts_shortened, by = ("submitter_id")) %>%  
+  mutate(contrast_group = if_else(is.na(contrast_group.y), contrast_group.x, contrast_group.y)) %>% 
+  dplyr::select(-contrast_group.x, -contrast_group.y)
+#mutate line: the left_join merges the two tables by ID but keeps both contrast columns (renamed as contrast_group.y and contrast_group.x). The mutate creates a new column contrast_group, checks for NA in the contrast_group.y column and enters the value of the contrast_group.x column in the new contrast_group column if it is NA, otherwise it enters the value in the conrast_group.y column. 
+
+ tabyl(meta_plus_contrast$contrast_group)
 ```
 
