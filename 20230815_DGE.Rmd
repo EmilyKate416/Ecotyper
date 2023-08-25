@@ -44,13 +44,9 @@ meta <- read_csv("Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_clinical.c
 
 #need to check for the most recent version of the pan-cancer clinical data table (modified to contrast contrast labels in Rmd 20230725_TCGA_OV_stratification.Rmd on I drive
 pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv", 
-                    delim = "\t", 
-                    escape_double = FALSE, 
-                    trim_ws = TRUE) %>% 
-  dplyr::rename(submitter_id = name)
-
-pancan_contrasts$submitter_id <- pancan_contrasts$submitter_id %>% 
-  str_trunc(12, "right", ellipsis = "") # some samples have additional letters at the end (unsure if this is vial number), remove these letters from name
+                        delim = "\t", escape_double = FALSE, trim_ws = TRUE) %>% 
+                        dplyr::rename(submitter_id = name) %>%
+                        mutate(submitter_id = str_trunc(submitter_id, 12, "right", ellipsis = "")) # some samples have additional letters at the end (unsure if this is vial number), remove these letters from name
 ```
 
 **Wrangle data**
@@ -64,31 +60,23 @@ rawCounts <- rawCounts %>%
 
 
 #get list of IDs you need the metadata for (all those with RNAseq counts)
-names <- as.data.frame(colnames(rawCounts)) %>% 
+#note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A and TCGA-61-2008-02A, the last number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)
+#filter to include only primary tumours
+primary_samples <- as.data.frame(colnames(rawCounts)) %>% 
    str_trunc(16, "right", ellipsis = "") %>% 
   clean_names() %>% 
-  dplyr::rename(submitter_id = colnames_raw_counts)
+  dplyr::rename(submitter_id = colnames_raw_counts) %>% 
+  filter(!str_detect(submitter_id,"02A")) %>% 
+  str_trunc(12, "right", ellipsis = "") # TCGA-23-1023 is present twice as TCGA-23-1023-01A and TCGA-23-1023-01R, so is appears duplicated when truncated
 
-#note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A and TCGA-61-2008-02A, the last number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)
 
-#filter to include only primary tumours
-
-recurrent_samples <- names %>% 
-  filter(str_detect(submitter_id, "02A")) #make a list of recurrent samples
-  
-primary_samples <- anti_join(names, recurrent_samples) %>% 
-  str_trunc(12, "right", ellipsis = "") #filter out the recurrent tumour samples and truncate ID to match pancancer table labels
-
-pancan_contrasts$submitter_id <- pancan_contrasts$submitter_id %>%  
-  str_trunc(12, "right", ellipsis = "")
-
-filtered_pancan <- left_join(primary_samples, pancan_contrasts) 
+#filtered_pancan <- left_join(primary_samples, pancan_contrasts) 
 
 # pull out cases not present in the pancancer table
 #cases_missing_labels <- filtered_pancan %>% 
-  filter(is.na(cx3)) %>% 
-  dplyr::select(submitter_id) %>% 
-  write_delim("./Data/Processed/20230815_rnaseq_cases_missing_from_pancan.tsv", delim = "\t")
+ # filter(is.na(cx3)) %>% 
+ # dplyr::select(submitter_id) %>% 
+ # write_delim("./Data/Processed/20230815_rnaseq_cases_missing_from_pancan.tsv", delim = "\t")
 
 ```
 
@@ -111,6 +99,61 @@ meta_plus_contrast <- meta_plus_contrast %>%
   dplyr::select(-contrast_group.x, -contrast_group.y)
 #mutate line: the left_join merges the two tables by ID but keeps both contrast columns (renamed as contrast_group.y and contrast_group.x). The mutate creates a new column contrast_group, checks for NA in the contrast_group.y column and enters the value of the contrast_group.x column in the new contrast_group column if it is NA, otherwise it enters the value in the conrast_group.y column. 
 
+#note if using if_else() from dplyr, use | and & as comparison operators, but if using if and else from base r, use || and && as comparison operators
+
  tabyl(meta_plus_contrast$contrast_group)
 ```
 
+**Annotate genes.**
+
+```{r geneAnnotation}
+ # Human Ensembl/GENCODE gene accession numbers start with ENSG followed by a number and version number separated by a dot. 
+ensembl <- data.frame(ensembl_id = rownames(rawCounts)) %>%  #create a data frame with a column for row names
+  separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.")  #escape the dot in sep argument using \\. because the dot is a special character
+
+ensembl_id <- as.character(ensembl$ensembl_id) # don't need version number for now, keys must be provided as character 
+
+
+colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL") #defines the columns you want to select from the gene annotation database
+
+geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provides annotations for the human genome
+                                       keys = ensembl_id, 
+                                       columns = colGene, keytype = "ENSEMBL") #queries the org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys. It retrieves the specified columns (colGene) for the provided gene IDs (gene_id) using the specified key type (ENSEMBL).
+
+#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID column (but keeps one copy of any duplicated name)
+geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]
+
+geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ] #filters to include only rows where values in the ENSEMBL column match a value present in the ensembl_id vector
+meta_rawCounts_matched <- meta_plus_contrast[meta_plus_contrast$submitter_id %in% primary_samples$submitter_id,] #might be returning 0 because TCGA-23-1023 is present twice over
+genes <-  geneIdMap$ENSEMBL
+
+rawCountsFinal <- as.matrix(rawCounts[genes, ]) # filters the raw count data for genes that match the annotated expression data and converts to a matrix for the next step (question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
+
+```
+
+**Create a DGE object for DE analysis.**
+
+```{r dgeObject}
+
+
+
+dge <- DGEList(counts = rawCountsFinal, genes = geneIdMap, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) 
+
+```
+
+**Filter lowly expressed genes.**
+*Using manual filtering and the filterByExp() function*
+
+```{r}
+# filter lowly expressed genes
+cutoff <- 4
+drop <- which(apply(cpm(dgeUnTreAn), 1, max) < cutoff)
+dgeUnTreAnFil <- dgeUnTreAn[-drop, , keep.lib.sizes = FALSE] 
+dim(dgeUnTreAnFil) # number of genes left after manual filtering
+
+keep <- filterByExpr(dgeUnTreAnFil, group = dgeUnTreAnFil$samples$treatment)
+
+dgeUnTreAnFilExp <- dgeUnTreAnFil[keep, ,keep.lib.sizes = FALSE ]
+dim(dgeUnTreAnFilExp) # number of genes left after manual filtering and filterByExpr
+
+```
