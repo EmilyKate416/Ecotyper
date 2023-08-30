@@ -9,11 +9,13 @@ date: "2023-08-15"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+- based on DGE script from Ashley Weir 
 
 ## Data required:
-- *20230815_STARcounts_TCGAOV.tsv* produced in temp_GDC_download_serverversion.Rmd
+- *20230815_STARcounts_TCGAOV.tsv* produced in temp_GDC_download_serverversion.Rmd 
+ - meta data from TCGA download *20230815_clinical.csv*
 - location on jblab server002: /home/lythgo02/ecotyper/20230720_TCGA_2nd_year/GDCdata/ 
-- *20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv* produced in 20230725_TCGA_OV_stratification.Rmd 
+- contrast labels *20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv* produced in 20230725_TCGA_OV_stratification.Rmd 
 - location on I-drive: ./Data/Processed/
 
 
@@ -34,7 +36,7 @@ library(janitor)
 
 **load data**
 
-```{r}
+```{r, message=FALSE}
 
 rawCounts <- read_delim("Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_STARcounts_TCGAOV.tsv", 
     delim = "\t", escape_double = FALSE, 
@@ -80,7 +82,7 @@ primary_samples <- as.data.frame(colnames(rawCounts)) %>%
 
 ```
 
-```{r}
+```{r, message=FALSE}
 #reload the cases_missing_labels list annotated using Wang 2017 and Takaya 2020 annotation
 cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv")
 
@@ -120,40 +122,49 @@ geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provi
                                        keys = ensembl_id, 
                                        columns = colGene, keytype = "ENSEMBL") #queries the org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys. It retrieves the specified columns (colGene) for the provided gene IDs (gene_id) using the specified key type (ENSEMBL).
 
-#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID column (but keeps one copy of any duplicated name)
+count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
+duplicated_geneIdMap <- geneIdMap %>% 
+  filter(duplicated(ENTREZID) &!is.na(ENTREZID)) #2812 duplicated ID
+
+#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID column (retaining one copy of any duplicated name)
 geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]
 
-geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ] #filters to include only rows where values in the ENSEMBL column match a value present in the ensembl_id vector
-meta_rawCounts_matched <- meta_plus_contrast[meta_plus_contrast$submitter_id %in% primary_samples$submitter_id,] #might be returning 0 because TCGA-23-1023 is present twice over
+geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ] 
+geneIdMap <- geneIdMap[complete.cases(geneIdMap), ] # one gene has missing entries, remove
+
+meta_rawCounts_matched <- meta_plus_contrast[meta_plus_contrast$submitter_id %in% primary_samples$submitter_id,] #have metadata for 421 out of 423 primary samples 
 genes <-  geneIdMap$ENSEMBL
 
-rawCountsFinal <- as.matrix(rawCounts[genes, ]) # filters the raw count data for genes that match the annotated expression data and converts to a matrix for the next step (question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
+#(question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
+
+```
+
+**Create matrix of read counts.**
+
+```{r}
+
+rawCountsCleaned <- as.matrix(rawCounts[genes, ]) %>% # filters the raw count data for genes that match the annotated expression data and converts to a matrix 
+  apply( 2, function(x) as.numeric(trimws(x))) 
+rownames(rawCountsCleaned) <- rownames(rawCounts[genes, ])
+
+#apply(...) applies the function that removes leading spaces and converts values to numeric for each column of the filtered and converted matrix....
+   #apply is used to apply a function to each column (indicated by '2')
+   #the function is an anonymous function created using function(x) - Inside the function: trimws(x): removes leading and trailing white spaces from the character values in column x which are then converted to numbers.
 
 ```
 
 **Create a DGE object for DE analysis.**
 
 ```{r dgeObject}
+count(is.na(meta_rawCounts_matched$contrast_group)) #DGEList can't accept NA values
+
+ meta_rawCounts_matched <- meta_rawCounts_matched %>% 
+  mutate(contrast_group = if_else(is.na(contrast_group), "unknown", contrast_group)) #if NA in contrast_group, replace with "unknown", otherwise keep contrast_group entry
 
 
+dge <- DGEList(counts = rawCountsCleaned, genes = geneIdMap_clean$ENTREZID, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) 
 
-dge <- DGEList(counts = rawCountsFinal, genes = geneIdMap, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) 
-
+#is it due to NA in the meta data?
 ```
 
-**Filter lowly expressed genes.**
-*Using manual filtering and the filterByExp() function*
 
-```{r}
-# filter lowly expressed genes
-cutoff <- 4
-drop <- which(apply(cpm(dgeUnTreAn), 1, max) < cutoff)
-dgeUnTreAnFil <- dgeUnTreAn[-drop, , keep.lib.sizes = FALSE] 
-dim(dgeUnTreAnFil) # number of genes left after manual filtering
-
-keep <- filterByExpr(dgeUnTreAnFil, group = dgeUnTreAnFil$samples$treatment)
-
-dgeUnTreAnFilExp <- dgeUnTreAnFil[keep, ,keep.lib.sizes = FALSE ]
-dim(dgeUnTreAnFilExp) # number of genes left after manual filtering and filterByExpr
-
-```
