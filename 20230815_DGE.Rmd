@@ -59,18 +59,25 @@ pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCG
 rawCounts <- rawCounts %>% 
   column_to_rownames(var = "gene_id") #430 cases with RNAseq counts from GDC
 
+#the gene names are already present within the rawCounts data 
+annotated_genes <- data.frame(rawCounts$gene_name) 
+annotated_genes <- data.frame(rownames(rawCounts), annotated_genes) # Create a new data frame with row names and the gene_name column
+colnames(annotated_genes) <- c("ensembl_id", "gene_name") # Rename the columns for clarity
 
-
+rawCounts <- rawCounts %>% 
+  dplyr::select(-"gene_name")
 #get list of IDs you need the metadata for (all those with RNAseq counts)
-#note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A and TCGA-61-2008-02A, the last number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)
+#note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A.... and TCGA-61-2008-02A.... the 7-8th number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)
 #filter to include only primary tumours
 primary_samples <- as.data.frame(colnames(rawCounts)) %>% 
    str_trunc(16, "right", ellipsis = "") %>% 
   clean_names() %>% 
   dplyr::rename(submitter_id = colnames_raw_counts) %>% 
-  filter(!str_detect(submitter_id,"02A")) %>% 
-  str_trunc(12, "right", ellipsis = "") # TCGA-23-1023 is present twice as TCGA-23-1023-01A and TCGA-23-1023-01R, so is appears duplicated when truncated
-
+  filter(!str_detect(submitter_id,"02A") & !str_detect(submitter_id,"01R")) %>% # TCGA-23-1023 is present twice as TCGA-23-1023-01A and TCGA-23-1023-01R, I have removed 01R for now
+  str_trunc(12, "right", ellipsis = "") 
+  
+rawCounts <- rawCounts %>% 
+  dplyr::select(-matches("02A|TCGA-23-1023-01R")) # remove any secondary samples and TCGA-23-1023-01R
 
 #filtered_pancan <- left_join(primary_samples, pancan_contrasts) 
 
@@ -105,8 +112,25 @@ meta_plus_contrast <- meta_plus_contrast %>%
 
  tabyl(meta_plus_contrast$contrast_group)
 ```
+**matching primary samples in rawcounts to samples in meta data**
+```{r}
+meta_rawCounts_matched <- meta_plus_contrast[meta_plus_contrast$submitter_id %in% primary_samples$submitter_id,]
 
-**Annotate genes.**
+```
+**Create a DGE object for DE analysis.**
+
+```{r dgeObject}
+
+dge <- DGEList(counts = rawCounts, genes = annotated_genes$ensembl_id, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) 
+
+```
+
+
+
+
+**redundant**
+
+**Annotate genes - not necessary if using gene_names present in rawCounts data.**
 
 ```{r geneAnnotation}
  # Human Ensembl/GENCODE gene accession numbers start with ENSG followed by a number and version number separated by a dot. 
@@ -132,12 +156,12 @@ geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]
 geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ] 
 geneIdMap <- geneIdMap[complete.cases(geneIdMap), ] # one gene has missing entries, remove
 
-meta_rawCounts_matched <- meta_plus_contrast[meta_plus_contrast$submitter_id %in% primary_samples$submitter_id,] #have metadata for 421 out of 423 primary samples 
 genes <-  geneIdMap$ENSEMBL
 
 #(question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
 
 ```
+
 
 **Create matrix of read counts.**
 
@@ -150,12 +174,6 @@ rownames(rawCountsCleaned) <- rownames(rawCounts[genes, ])
 #apply(...) applies the function that removes leading spaces and converts values to numeric for each column of the filtered and converted matrix....
    #apply is used to apply a function to each column (indicated by '2')
    #the function is an anonymous function created using function(x) - Inside the function: trimws(x): removes leading and trailing white spaces from the character values in column x which are then converted to numbers.
-
-```
-
-**Create a DGE object for DE analysis.**
-
-```{r dgeObject}
 count(is.na(meta_rawCounts_matched$contrast_group)) #DGEList can't accept NA values
 
  meta_rawCounts_matched <- meta_rawCounts_matched %>% 
@@ -164,7 +182,5 @@ count(is.na(meta_rawCounts_matched$contrast_group)) #DGEList can't accept NA val
 
 dge <- DGEList(counts = rawCountsCleaned, genes = geneIdMap_clean$ENTREZID, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) 
 
-#is it due to NA in the meta data?
 ```
-
 
