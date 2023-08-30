@@ -116,19 +116,109 @@ meta_plus_contrast <- meta_plus_contrast %>%
 ```{r}
 meta_rawCounts_matched <- meta_plus_contrast[meta_plus_contrast$submitter_id %in% primary_samples$submitter_id,]
 
+merged_data <- primary_samples %>%
+  left_join(meta_rawCounts_matched, by = c("submitter_id" = "submitter_id"))
+
+# Arrange the rows based on the order of submitter_id in primary_samples
+meta_rawCounts_matched <- merged_data %>%
+  arrange(match(submitter_id, primary_samples$submitter_id)) # Now ordered_data contains the rows from meta_rawCounts_matched in the same order as in primary_samples
+
+colnames(rawCounts) <- substr(colnames(rawCounts), 1, 12)
+```
+
+**split into my two contrast: BRCA1/2 loss vs HRD high and BRCA1/2 loss vs HRD low**
+```{r}
+
+meta_rawCounts_matched_1 <- meta_rawCounts_matched %>% filter(contrast_group == "BRCA1/2_loss" | contrast_group == "HRD_high")
+meta_rawCounts_matched_2 <- meta_rawCounts_matched %>% filter(contrast_group == "BRCA1/2_loss" | contrast_group == "HRD_low")
+
+rawCounts_1 <- rawCounts[,colnames(rawCounts) %in% meta_rawCounts_matched_1$submitter_id]
+rawCounts_2 <- rawCounts[,colnames(rawCounts) %in% meta_rawCounts_matched_2$submitter_id]
 ```
 **Create a DGE object for DE analysis.**
 
 ```{r dgeObject}
 
-dge <- DGEList(counts = rawCounts, genes = annotated_genes$ensembl_id, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) 
+dge_1 <- DGEList(counts = rawCounts_1, genes = annotated_genes$ensembl_id, samples = meta_rawCounts_matched_1, group = meta_rawCounts_matched_1$contrast_group) 
+dge_2 <- DGEList(counts = rawCounts_2, genes = annotated_genes$ensembl_id, samples = meta_rawCounts_matched_2, group = meta_rawCounts_matched_2$contrast_group)
+ 
+```
+
+
+**Filter lowly expressed genes.**
+*Using manual filtering and the filterByExp() function*
+
+```{r dge_1 BRCA1/2 loss vs HRD high}
+# filter lowly expressed genes
+cutoff <- 4
+drop_1 <- which(apply(cpm(dge_1), 1, max) < cutoff)
+dgeFil_1 <- dge_1[-drop, , keep.lib.sizes = FALSE] 
+dim(dgeFil_1) # number of genes left after manual filtering
+
+keep <- filterByExpr(dgeFil_1, group = dgeFil_1$samples$contrast_group)
+
+dgeFilExp_1 <- dgeFil_1[keep, ,keep.lib.sizes = FALSE ]
+dim(dgeFilExp_1) # number of genes left after manual filtering and filterByExpr
+
+```
+
+```{r dge_2 BRCA1/2 loss vs HRD low}
+# filter lowly expressed genes
+cutoff <- 4
+drop_2 <- which(apply(cpm(dge_2), 1, max) < cutoff)
+dgeFil_2 <- dge_2[-drop, , keep.lib.sizes = FALSE] 
+dim(dgeFil_2) # number of genes left after manual filtering
+
+keep <- filterByExpr(dgeFil_2, group = dgeFil_2$samples$contrast_group)
+
+dgeFilExp_2 <- dgeFil_2[keep, ,keep.lib.sizes = FALSE ]
+dim(dgeFilExp_2) # number of genes left after manual filtering and filterByExpr
+
+```
+
+```{r}
+
+boxplot(log(dgeFilExp_1$counts + 0.5), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at raw log counts
+boxplot(cpm(dgeFilExp_1$counts, log = TRUE), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at log cpm normalised counts
+
+plotSparsity(dgeFilExp_1$counts, normalized = TRUE)
+
+```
+
+**Normalisation.**
+
+```{r deg_1}
+
+# calculate normalisation factors (does not normalise)
+dgeFilExpNorm_1 <- calcNormFactors(dgeFilExp_1)
+
+barplot(dgeFilExpNorm_1$samples$norm.factors, names = colnames(dgeFilExpNorm_1), las = 2)
+title("Barplot of normalisation factors")
+
+```
+ 
+**Contrast: dge_1 BRCA1/2 loss vs HRD high.**
+*Define group for contrast and covariate interactions*
+check if I need to run DGE for the two contrast groups separately or if I can run them together and separate out at this stage
+```{r}
+
+ 
+group_1 <-  interaction(dgeFilExpNorm_1$samples$contrast_group)
+groupCol_1 <- group_1 # you could just use the original interaction vector, but I like to make a new one that I will overlay colours on.
+levels(groupCol_1) <- c("#F8766D", "#00BFC4") # change levels to colour names/HEX codes.
+# untreated == turquoise (#00BFC4)
+# auranofin == tomato ("#F8766D")
+groupCol_1 <- as.character(groupCol_1) # make sure R knows the colour replacements are characters.
+
+plotMDS(dgeFilExpNorm_1, col = groupCol_1, labels = NULL, pch = 20)
+legend("topright", legend = c("BRCA1/2 Loss", "HRD high"), fill =  c("#F8766D", "#00BFC4"))
 
 ```
 
 
 
-
 **redundant**
+**steps which were required before running DGEList**
 
 **Annotate genes - not necessary if using gene_names present in rawCounts data.**
 
