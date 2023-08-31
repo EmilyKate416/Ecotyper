@@ -126,95 +126,88 @@ meta_rawCounts_matched <- merged_data %>%
 colnames(rawCounts) <- substr(colnames(rawCounts), 1, 12)
 ```
 
-**split into my two contrast: BRCA1/2 loss vs HRD high and BRCA1/2 loss vs HRD low**
-```{r}
 
-meta_rawCounts_matched_1 <- meta_rawCounts_matched %>% filter(contrast_group == "BRCA1/2_loss" | contrast_group == "HRD_high")
-meta_rawCounts_matched_2 <- meta_rawCounts_matched %>% filter(contrast_group == "BRCA1/2_loss" | contrast_group == "HRD_low")
-
-rawCounts_1 <- rawCounts[,colnames(rawCounts) %in% meta_rawCounts_matched_1$submitter_id]
-rawCounts_2 <- rawCounts[,colnames(rawCounts) %in% meta_rawCounts_matched_2$submitter_id]
-```
 **Create a DGE object for DE analysis.**
-
+#NOTE need to delete the first DGEList object and run the two below if I am creating two separate DGEList objects for each contrast
 ```{r dgeObject}
 
-dge_1 <- DGEList(counts = rawCounts_1, genes = annotated_genes$ensembl_id, samples = meta_rawCounts_matched_1, group = meta_rawCounts_matched_1$contrast_group) 
-dge_2 <- DGEList(counts = rawCounts_2, genes = annotated_genes$ensembl_id, samples = meta_rawCounts_matched_2, group = meta_rawCounts_matched_2$contrast_group)
- 
+dge <- DGEList(counts = rawCounts, genes = annotated_genes$ensembl_id, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) # contains all samples in one object 
+
 ```
 
 
 **Filter lowly expressed genes.**
 *Using manual filtering and the filterByExp() function*
 
-```{r dge_1 BRCA1/2 loss vs HRD high}
+```{r }
 # filter lowly expressed genes
 cutoff <- 4
-drop_1 <- which(apply(cpm(dge_1), 1, max) < cutoff)
-dgeFil_1 <- dge_1[-drop, , keep.lib.sizes = FALSE] 
-dim(dgeFil_1) # number of genes left after manual filtering
+drop <- which(apply(cpm(dge), 1, max) < cutoff) #cpm() calculates counts per million for normalisation, apply() is then used to calculate the max (using max()) CPM value across all rows (1 means all rows, 2 would mean all columns), and which() returns indices of genes where max cpm < 4
+dgeFil <- dge[-drop, , keep.lib.sizes = FALSE] 
+dim(dgeFil) # number of genes left after manual filtering
 
-keep <- filterByExpr(dgeFil_1, group = dgeFil_1$samples$contrast_group)
+keep <- filterByExpr(dgeFil, group = dgeFil$samples$contrast_group) 
 
-dgeFilExp_1 <- dgeFil_1[keep, ,keep.lib.sizes = FALSE ]
-dim(dgeFilExp_1) # number of genes left after manual filtering and filterByExpr
+dgeFilExp <- dgeFil[keep, ,keep.lib.sizes = FALSE ] 
+dim(dgeFilExp) # number of genes left after manual filtering and filterByExpr
 
 ```
 
-```{r dge_2 BRCA1/2 loss vs HRD low}
-# filter lowly expressed genes
-cutoff <- 4
-drop_2 <- which(apply(cpm(dge_2), 1, max) < cutoff)
-dgeFil_2 <- dge_2[-drop, , keep.lib.sizes = FALSE] 
-dim(dgeFil_2) # number of genes left after manual filtering
-
-keep <- filterByExpr(dgeFil_2, group = dgeFil_2$samples$contrast_group)
-
-dgeFilExp_2 <- dgeFil_2[keep, ,keep.lib.sizes = FALSE ]
-dim(dgeFilExp_2) # number of genes left after manual filtering and filterByExpr
-
-```
-
+**just set up the analysis for contrast 1 for now, repeat on two after **
 ```{r}
+#check for samples that have more counts on average than other samples 
+boxplot(log(dgeFilExp$counts + 0.5), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at raw log counts (+0.5 to prevent taking the log of 0)
+boxplot(cpm(dgeFilExp$counts, log = TRUE), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at log cpm normalised counts
 
-boxplot(log(dgeFilExp_1$counts + 0.5), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at raw log counts
-boxplot(cpm(dgeFilExp_1$counts, log = TRUE), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at log cpm normalised counts
+plotSparsity(dgeFilExp$counts, normalized = TRUE) # normalised to account for variations in library size  to avoid sequencing bias
 
-plotSparsity(dgeFilExp_1$counts, normalized = TRUE)
 
 ```
 
 **Normalisation.**
 
-```{r deg_1}
+```{r}
 
 # calculate normalisation factors (does not normalise)
-dgeFilExpNorm_1 <- calcNormFactors(dgeFilExp_1)
+dgeFilExpNorm <- calcNormFactors(dgeFilExp)
 
-barplot(dgeFilExpNorm_1$samples$norm.factors, names = colnames(dgeFilExpNorm_1), las = 2)
+barplot(dgeFilExpNorm$samples$norm.factors, las = 2)
 title("Barplot of normalisation factors")
 
 ```
- 
-**Contrast: dge_1 BRCA1/2 loss vs HRD high.**
-*Define group for contrast and covariate interactions*
-check if I need to run DGE for the two contrast groups separately or if I can run them together and separate out at this stage
+
+**Define group for contrast interactions**
 ```{r}
 
  
-group_1 <-  interaction(dgeFilExpNorm_1$samples$contrast_group)
-groupCol_1 <- group_1 # you could just use the original interaction vector, but I like to make a new one that I will overlay colours on.
-levels(groupCol_1) <- c("#F8766D", "#00BFC4") # change levels to colour names/HEX codes.
-# untreated == turquoise (#00BFC4)
-# auranofin == tomato ("#F8766D")
-groupCol_1 <- as.character(groupCol_1) # make sure R knows the colour replacements are characters.
+groupCol <-  interaction(dgeFilExpNorm$samples$contrast_group)
+groupCol <- group # you could just use the original interaction vector, but I like to make a new one that I will overlay colours on.
+levels(groupCol) <- c("#F8766D", "#00BFC4", "#00BA38") # change levels to colour names/HEX codes.
+# BRCA1/2 Loss == turquoise (#00BFC4)
+#HRD high == tomato ("#F8766D")
+#HRD low == green ("#00BA38")
+groupCol <- as.character(groupCol) # make sure R knows the colour replacements are characters.
 
-plotMDS(dgeFilExpNorm_1, col = groupCol_1, labels = NULL, pch = 20)
-legend("topright", legend = c("BRCA1/2 Loss", "HRD high"), fill =  c("#F8766D", "#00BFC4"))
+plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20) +
+legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c("#F8766D", "#00BFC4", "#00BA38"))
+#distances on the plot approximate the typical log2 fold changes between the samples 
 
 ```
+**defining covariate interactions**
 
+```{r}
+
+stage <- interaction(dgeFilExpNorm$samples$figo_stage)
+# Levels: Stage IC, IIA, IIB, IIC, IIIA, IIIB, IIIC, IV
+levels(stage) <- c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse" ) 
+stage <- as.character(stage) 
+
+plotMDS(dgeFilExpNorm, col = stage, labels = NULL, pch = 20)
+legend("topright", legend = c("Stage IC", "IIA", "IIB", "IIC", "IIIA", "IIIB", "IIIC", "IV"), fill =  c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse" ) )
+
+
+```
+These MDS plots are *extremely* important. They show what most of your variation comes from. These covariates need to be included in our design matrix, since we are primarily interested in BRCA1/2 and HRD status.
 
 
 **redundant**
