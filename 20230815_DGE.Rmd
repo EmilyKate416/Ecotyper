@@ -42,7 +42,7 @@ rawCounts <- read_delim("Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_STA
     delim = "\t", escape_double = FALSE, 
     trim_ws = TRUE)
 
-meta <- read_csv("Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_clinical.csv")
+meta <- read_csv("Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_clinical.csv") 
 
 #need to check for the most recent version of the pan-cancer clinical data table (modified to contrast contrast labels in Rmd 20230725_TCGA_OV_stratification.Rmd on I drive
 pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv", 
@@ -105,7 +105,7 @@ meta_plus_contrast <- cases_missing_labels %>%
 meta_plus_contrast <- meta_plus_contrast %>%  
   left_join(pancan_contrasts_shortened, by = ("submitter_id")) %>%  
   mutate(contrast_group = if_else(is.na(contrast_group.y), contrast_group.x, contrast_group.y)) %>% 
-  dplyr::select(-contrast_group.x, -contrast_group.y)
+  dplyr::select(-contrast_group.x, -contrast_group.y) 
 #mutate line: the left_join merges the two tables by ID but keeps both contrast columns (renamed as contrast_group.y and contrast_group.x). The mutate creates a new column contrast_group, checks for NA in the contrast_group.y column and enters the value of the contrast_group.x column in the new contrast_group column if it is NA, otherwise it enters the value in the conrast_group.y column. 
 
 #note if using if_else() from dplyr, use | and & as comparison operators, but if using if and else from base r, use || and && as comparison operators
@@ -194,7 +194,7 @@ legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c(
 
 ```
 **defining covariate interactions**
-
+#NOTE NEED to collapse the stages into 1-4, the separation may be too granular to see any possible confounders at present 
 ```{r}
 
 stage <- interaction(dgeFilExpNorm$samples$figo_stage)
@@ -207,8 +207,44 @@ legend("topright", legend = c("Stage IC", "IIA", "IIB", "IIC", "IIIA", "IIIB", "
 
 
 ```
+```{r}
+
+age_at_diagnosis <- interaction(dgeFilExpNorm$samples$age_at_diagnosis)
+
+plotMDS(dgeFilExpNorm, col = age_at_diagnosis, labels = NULL, pch = 20)
+
+```
+```{r}
+
+site <- interaction(dgeFilExpNorm$samples$site_of_resection_or_biopsy)
+
+plotMDS(dgeFilExpNorm, col = site, labels = NULL, pch = 20)
+
+```
 These MDS plots are *extremely* important. They show what most of your variation comes from. These covariates need to be included in our design matrix, since we are primarily interested in BRCA1/2 and HRD status.
 
+
+**Define the design matrix.**
+
+```{r}
+
+# specify the model to be fitted
+modelMatrix <- model.matrix(~ 0 + group )
+# currently not adjusting for any additional covariates
+```
+
+**Voom transformation.** 
+
+```{r}
+
+# voom transformation
+voomUnTrAn <- voom(dgeUnTreAnFilExpNorm, modelMatrixAn, plot = TRUE) 
+
+# look at diagnostic plots
+plotMDS(dgeUnTreAnFilExpNorm, col = groupCol, labels = NULL, pch = 20)
+legend("topright", legend = c("auranofin", "untreated"), fill =  c("#F8766D", "#00BFC4"))
+
+```
 
 **redundant**
 **steps which were required before running DGEList**
