@@ -153,7 +153,7 @@ drop <- which(apply(cpm(dge), 1, max) < cutoff) #cpm() calculates counts per mil
 dgeFil <- dge[-drop, , keep.lib.sizes = FALSE] 
 dim(dgeFil) # number of genes left after manual filtering
 
-keep <- filterByExpr(dgeFil, group = dgeFil$samples$contrast_group) 
+keep <- filterByExpr(dgeFil, group = dgeFil$samples$contrast_group) #filters genes with low counts 
 
 dgeFilExp <- dgeFil[keep, ,keep.lib.sizes = FALSE ] 
 dim(dgeFilExp) # number of genes left after manual filtering and filterByExpr
@@ -195,7 +195,7 @@ levels(groupCol) <- c("#F8766D", "#00BFC4", "#00BA38") # change levels to colour
 #HRD low == green ("#00BA38")
 groupCol <- as.character(groupCol) # make sure R knows the colour replacements are characters.
 
-plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20) 
+plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20) #multidimensional scaling plot to visualise similarity between samples based on gene expression profiles 
 legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c("#F8766D", "#00BFC4", "#00BA38"))
 #distances on the plot approximate the typical log2 fold changes between the samples 
 
@@ -236,7 +236,7 @@ These MDS plots are *extremely* important. They show what most of your variation
 ```{r}
 
 # specify the model to be fitted
-modelMatrix <- model.matrix(~ 0 + group , data=dgeFilExpNorm)
+modelMatrix <- model.matrix(~ 0 + group , data=dgeFilExpNorm) # specifies the design of the linear model
 # currently not adjusting for any additional covariates
 ```
 
@@ -245,7 +245,7 @@ modelMatrix <- model.matrix(~ 0 + group , data=dgeFilExpNorm)
 ```{r}
 
 # voom transformation
-voom <- voom(dgeFilExpNorm, modelMatrix, plot = TRUE) 
+voom <- voom(dgeFilExpNorm, modelMatrix, plot = TRUE) #voom transformation transforms counts to log2 CPM based on the normalisation factors calculated earlier. It also fits a linear model to the log2 CPM for each gene (row-wise), calculates the residuals, and then fits a smoothed curve to the square root of the residual standard deviation by average expression. The smoothed curve is used to obtain weights for each gene and sample, which are then passed into limma for DEA taking into account the variability of each gene.
 
 # look at diagnostic plots
 plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20)
@@ -258,49 +258,85 @@ legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c(
 
 ```{r}
 # fitting a linear model using weighted least squares for each gene
-fit <- lmFit(voom, modelMatrix)
-head(coef(fit))
+fit <- lmFit(voom, modelMatrix) # now run DEA
+head(coef(fit)) #display the coefficients for the model terms defined in the model matrix. These coefficients will be used to perform hypothesis testing to determine significantly up/down regulated genes. 
 
 ```
 **Define contrast.**
 
 ```{r}
 # comparison between groups (log-fold changes) are obtained as contrasts of these fitted linear models
-contr <- makeContrasts( groupHRD_high - groupBRCA1_2_loss, groupHRD_low - groupBRCA1_2_loss, levels = modelMatrix)
-
+contr <- makeContrasts( groupHRD_high - groupBRCA1_2_loss, groupHRD_low - groupBRCA1_2_loss, levels = modelMatrix) # define the comparisons you want to make
+#  groupHRD_high - groupBRCA1_2_loss, # Coefficient 1
+ # groupHRD_low - groupBRCA1_2_loss,  # Coefficient 2
 contr
-contrastsfit <- contrasts.fit(fit, contrasts = contr)
-fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for hypervariable genes
+contrastsfit <- contrasts.fit(fit, contrasts = contr) # fit the contrasts to the linear model fit and calculate the coefficients 
+fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for potnetial issues with heteroscedasticy (varying levels of dispersion) in the data. Helps to obtain more accurate p-values and effect size estimates.
 
 ```
 **Extract to contrasts.**
 ```{r}
 
 results_HRDhigh <- topTable(fittedContrasts, coef= "groupHRD_high - groupBRCA1_2_loss", sort.by = "P", n = Inf) # lists the top DE genes 
-head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value)
-write_csv(topTable, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/topTableDEgenes_BRCA1_2_loss_vs_HRD_high.csv")
+head(results_HRDhigh, 20) # generate a table of top 20 DE genes (sorted by p value), n=Inf means retreive all DE genes (no limit on number)
+#write_csv(results_HRDhigh, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230905_topTableDEgenes_BRCA1_2_loss_vs_HRD_high.csv")
 
 results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
-head(results_HRDlow)
-write_csv(topTable, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/topTableDEgenes_BRCA1_2_loss_vs_HRD_low.csv")
+head(results_HRDlow, 20)
+#write_csv(results_HRDlow, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230905_topTableDEgenes_BRCA1_2_loss_vs_HRD_low.csv")
 ```
 **Statistical testing.**
+*The output from topTable() includes*
+*logFC: the log fold-change between cases and controls.*
+*t: the t-statistic used to assess differential expression.*
+*P.Value: the p-value for differential expression; this value is not adjusted for multiple testing.*
+*adj.P.Val: the p-value adjusted for multiple testing. Different adjustment methods are available, the default is Benjamini-Horchberg.*
 
+*Just looking at BRCA1/2 vs HRD low*
 ```{r}
 
 # Total number of DE genes based on adjusted p value < 0.05
-length(which(topTable$adj.P.Val < 0.05))
+length(which(results_HRDlow$adj.P.Val < 0.05))
 
-# Total number of DE genes based on adjusted p value < 0.05 and |logFC| >= 1.0
-length(which(topTable$adj.P.Val < 0.05 & abs(topTable$logFC) >= 1.0 ))
+# Total number of DE genes based on adjusted p value < 0.05 and |logFC| (absolute log fold-change) >= 1.0
+length(which(results_HRDlow$adj.P.Val < 0.05 & abs(results_HRDlow$logFC) >= 1.0 ))
 
 # Total number of DE genes based on adjusted p value < 0.01 and |logFC| >= 1.0
-length(which(topTable$adj.P.Val < 0.01 & abs(topTable$logFC) >= 1.0 ))
+length(which(results_HRDlow$adj.P.Val < 0.01 & abs(results_HRDlow$logFC) >= 1.0 ))
 
-dt <- decideTests(tmptest, p.value = 0.05, lfc = 1.0)
+dt <- decideTests(fittedContrasts, p.value = 0.05, lfc = 1.0) #makes DE gene calls based on a specified p-value and log-fold change threshold 
 summary(dt)
 
 ```
+
+
+**Plots for DE contrast: BRCA1/2 loss vs HRD low**
+*you should be able to provide the gene names from fittedContrasts but I don't seem to have them, check why this is*
+```{r}
+volcanoplot(
+  fittedContrasts,             # The fitted contrasts object
+  coef = "groupHRD_low - groupBRCA1_2_loss",                    # Specify the contrast (coefficient) you want to visualize
+  highlight = 10,               # The number of top genes to highlight (you can adjust this)
+  names = annotated_genes$gene_name,        # The gene symbols (replace 'genes$SYMBOL' with the actual gene symbol data)
+  main = "Volcano Plot"        # Title for the plot (replace with your desired title)
+)
+
+#x axis - upregulation (positive values) and downregulation (negative) of genes 
+#y-axis - statistical significance 
+#each gene = a dot
+
+logFC_contrast_low <- fittedContrasts$coefficients[, "groupHRD_low - groupBRCA1_2_loss"]
+EnhancedVolcano::EnhancedVolcano(
+  fittedContrasts,
+  x = logFC_contrast_low,  # fittedContrasts$coefficients
+  y = "logP",           # Specify the negative log10-transformed p-values
+  title = "Volcano Plot",
+  lab = annotated_genes$gene_name
+)
+```
+
+
+
 **redundant**
 **steps which were required before running DGEList**
 
