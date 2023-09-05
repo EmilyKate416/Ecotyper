@@ -32,6 +32,7 @@ library(limma)
 library(edgeR)
 library(DESeq2)
 library(janitor)
+library(statmod)
 ```
 
 **load data**
@@ -124,6 +125,12 @@ meta_rawCounts_matched <- merged_data %>%
   arrange(match(submitter_id, primary_samples$submitter_id)) # Now ordered_data contains the rows from meta_rawCounts_matched in the same order as in primary_samples
 
 colnames(rawCounts) <- substr(colnames(rawCounts), 1, 12)
+
+missing_contrast <- meta_rawCounts_matched[is.na(meta_rawCounts_matched$contrast_group),]
+
+rawCounts <- rawCounts[,!colnames(rawCounts) %in% missing_contrast$submitter_id]
+
+meta_rawCounts_matched <- meta_rawCounts_matched[!is.na(meta_rawCounts_matched$contrast_group),]
 ```
 
 
@@ -131,7 +138,7 @@ colnames(rawCounts) <- substr(colnames(rawCounts), 1, 12)
 #NOTE need to delete the first DGEList object and run the two below if I am creating two separate DGEList objects for each contrast
 ```{r dgeObject}
 
-dge <- DGEList(counts = rawCounts, genes = annotated_genes$ensembl_id, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) # contains all samples in one object 
+dge <- DGEList(counts = rawCounts, genes = annotated_genes$gene_id, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) # contains all samples in one object 
 
 ```
 
@@ -153,7 +160,7 @@ dim(dgeFilExp) # number of genes left after manual filtering and filterByExpr
 
 ```
 
-**just set up the analysis for contrast 1 for now, repeat on two after **
+**process all contrast groups together for now **
 ```{r}
 #check for samples that have more counts on average than other samples 
 boxplot(log(dgeFilExp$counts + 0.5), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at raw log counts (+0.5 to prevent taking the log of 0)
@@ -180,7 +187,7 @@ title("Barplot of normalisation factors")
 ```{r}
 
  
-groupCol <-  interaction(dgeFilExpNorm$samples$contrast_group)
+group <-  interaction(dgeFilExpNorm$samples$contrast_group)
 groupCol <- group # you could just use the original interaction vector, but I like to make a new one that I will overlay colours on.
 levels(groupCol) <- c("#F8766D", "#00BFC4", "#00BA38") # change levels to colour names/HEX codes.
 # BRCA1/2 Loss == turquoise (#00BFC4)
@@ -188,7 +195,7 @@ levels(groupCol) <- c("#F8766D", "#00BFC4", "#00BA38") # change levels to colour
 #HRD low == green ("#00BA38")
 groupCol <- as.character(groupCol) # make sure R knows the colour replacements are characters.
 
-plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20) +
+plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20) 
 legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c("#F8766D", "#00BFC4", "#00BA38"))
 #distances on the plot approximate the typical log2 fold changes between the samples 
 
@@ -229,7 +236,7 @@ These MDS plots are *extremely* important. They show what most of your variation
 ```{r}
 
 # specify the model to be fitted
-modelMatrix <- model.matrix(~ 0 + group )
+modelMatrix <- model.matrix(~ 0 + group , data=dgeFilExpNorm)
 # currently not adjusting for any additional covariates
 ```
 
@@ -238,14 +245,62 @@ modelMatrix <- model.matrix(~ 0 + group )
 ```{r}
 
 # voom transformation
-voomUnTrAn <- voom(dgeUnTreAnFilExpNorm, modelMatrixAn, plot = TRUE) 
+voom <- voom(dgeFilExpNorm, modelMatrix, plot = TRUE) 
 
 # look at diagnostic plots
-plotMDS(dgeUnTreAnFilExpNorm, col = groupCol, labels = NULL, pch = 20)
-legend("topright", legend = c("auranofin", "untreated"), fill =  c("#F8766D", "#00BFC4"))
+plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20)
+legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c("#F8766D", "#00BFC4", "#00BA38"))
 
 ```
 
+
+**Fit linear model.**
+
+```{r}
+# fitting a linear model using weighted least squares for each gene
+fit <- lmFit(voom, modelMatrix)
+head(coef(fit))
+
+```
+**Define contrast.**
+
+```{r}
+# comparison between groups (log-fold changes) are obtained as contrasts of these fitted linear models
+contr <- makeContrasts( groupHRD_high - groupBRCA1_2_loss, groupHRD_low - groupBRCA1_2_loss, levels = modelMatrix)
+
+contr
+contrastsfit <- contrasts.fit(fit, contrasts = contr)
+fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for hypervariable genes
+
+```
+**Extract to contrasts.**
+```{r}
+
+results_HRDhigh <- topTable(fittedContrasts, coef= "groupHRD_high - groupBRCA1_2_loss", sort.by = "P", n = Inf) # lists the top DE genes 
+head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value)
+write_csv(topTable, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/topTableDEgenes_BRCA1_2_loss_vs_HRD_high.csv")
+
+results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
+head(results_HRDlow)
+write_csv(topTable, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/topTableDEgenes_BRCA1_2_loss_vs_HRD_low.csv")
+```
+**Statistical testing.**
+
+```{r}
+
+# Total number of DE genes based on adjusted p value < 0.05
+length(which(topTable$adj.P.Val < 0.05))
+
+# Total number of DE genes based on adjusted p value < 0.05 and |logFC| >= 1.0
+length(which(topTable$adj.P.Val < 0.05 & abs(topTable$logFC) >= 1.0 ))
+
+# Total number of DE genes based on adjusted p value < 0.01 and |logFC| >= 1.0
+length(which(topTable$adj.P.Val < 0.01 & abs(topTable$logFC) >= 1.0 ))
+
+dt <- decideTests(tmptest, p.value = 0.05, lfc = 1.0)
+summary(dt)
+
+```
 **redundant**
 **steps which were required before running DGEList**
 

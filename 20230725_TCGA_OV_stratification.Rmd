@@ -92,7 +92,8 @@ BRCA1_lowexp_cBioPortal <- read_delim(here("Data/Raw/20230726_BRCA1_lowexp_cBioP
     trim_ws = TRUE) %>%  
   clean_names() #append = FALSE to write over existing file, 
 
- BRCA1_lowexp_cBioPortal <- rename(BRCA1_lowexp_cBioPortal, name = patient_id)
+ BRCA1_lowexp_cBioPortal <- BRCA1_lowexp_cBioPortal %>%  dplyr::rename( name = `patient_id` )
+
 
 cBio_pancan_low_BRCA1 <- semi_join(pancan_annotation, BRCA1_lowexp_cBioPortal, by = "name")
 
@@ -122,7 +123,7 @@ pancan_BRCA_LOF <- pancan_annotation %>%
 ```{r, identifying missing gBRCA2+LOH cases}
 gBRCA2_Wang <- BRCA_loss_Wang_2017 %>%  
   dplyr::filter(brca_status == "BRCA2.Germline") %>% 
-  rename(name = case_id)
+  dplyr::rename(name = case_id)
 
 #TCGA-24-1562, TCGA-13-1498, TCGA-24-2293, TCGA-24-1463 are gBRCA2 but not LOH according to the TCGA 2011 paper 
 
@@ -136,7 +137,7 @@ missing_gBRCA2LOH <- anti_join(potential_gBRCA2LOH, pancan_BRCA_LOF, by = "name"
 
 #look in TCGA 2011 paper for additional gBRCA2 cases
 gBRCA2_cases <- gBRCA2_cases %>% 
-  rename(name = case_id)
+  dplyr::rename(name = case_id)
 
 potential_gBRCA2LOH <- anti_join(gBRCA2_cases, pancan_annotation, by = "name") #  TCGA-24-2293 not present in the pancancer list at all
 
@@ -150,7 +151,7 @@ potential_gBRCA2LOH <-  anti_join(pancan_annotation, potential_gBRCA2LOH, by = "
 
 germline_maxwell_brca2 <-   separate(germline_mut_type_Maxwell_2017, mutation, into = c("brca_status", "mutation"),  sep = " ") %>%  
   dplyr::filter(brca_status == "BRCA2") %>% 
-  rename(name = tumor_id) # some have two spaces as delimiter so the mutation info has been discarded in these cases but is in the original table
+  dplyr::rename(name = tumor_id) # some have two spaces as delimiter so the mutation info has been discarded in these cases but is in the original table
 
 potential_gBRCA2LOH <- anti_join(germline_maxwell_brca2, pancan_BRCA_LOF) #12 samples with germline BRCA2 mutations that aren't listed as BRCA2 in pancancer annotation
 #check if present in the pancancer dataset 
@@ -172,7 +173,7 @@ missing_gBRCA2LOH <- subset(pancan_annotation, name %in% c("TCGA-13-0751",
 #adding in hypermethylated and gBRCA2+LOH cases
 pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, missing_hypermeth) 
 pancan_BRCA_LOF <- full_join(pancan_BRCA_LOF, missing_gBRCA2LOH) %>% 
-  mutate(contrast_group = "BRCA1/2_loss")
+  mutate(contrast_group = "BRCA1_2_loss")
 
 
 ```
@@ -220,7 +221,7 @@ tabyl(pancan_contrast$status)
 
 ```{r}
 cases_missing_labels <- read_delim("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.tsv", delim = "\t") %>% 
-  rename(case_id = submitter_id)
+  dplyr::rename(case_id = submitter_id)
 ```
 
 ```{r}
@@ -230,7 +231,7 @@ HRD_survival_2020 <- readxl::read_excel("Data/Raw/2020_Homologous recombination 
     sheet = "Table002 (Page 7)") %>% 
   row_to_names(row_number = 1) %>% 
   clean_names() %>% 
-  rename(case_id = patient_id)
+  dplyr::rename(case_id = patient_id)
 
 missing_search_2 <- semi_join(HRD_survival_2020, cases_missing_labels) 
 
@@ -240,7 +241,7 @@ missing_search_3 <- semi_join(TCGA_all, cases_missing_labels) # only 1 case pres
 ```{r}
 #reload the cases_missing_labels list annotated using Wang 2017 and Takaya 2020 annotation
 cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv") %>% 
-  rename(tcga_tumor = submitter_id)
+  dplyr::rename(tcga_tumor = submitter_id)
 
 #HRD classification from Shah 2022
 gBRCA_Shah_2022 <- read_excel("Data/Raw/2022_Analysis_of_matched_primary_and_recurrent_BRCA12/41467_2022_34523_MOESM14_ESM.xlsx", sheet = "TCGAOvarian_gBRCA") %>% 
