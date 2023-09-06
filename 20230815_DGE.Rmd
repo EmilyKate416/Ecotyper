@@ -60,13 +60,11 @@ pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCG
 rawCounts <- rawCounts %>% 
   column_to_rownames(var = "gene_id") #430 cases with RNAseq counts from GDC
 
-#the gene names are already present within the rawCounts data 
-annotated_genes <- data.frame(rawCounts$gene_name) 
-annotated_genes <- data.frame(rownames(rawCounts), annotated_genes) # Create a new data frame with row names and the gene_name column
-colnames(annotated_genes) <- c("ensembl_id", "gene_name") # Rename the columns for clarity
+#the gene names are already present within the rawCounts data - use the annotation package instead as this is more reliable for matching the symbols
+#annotated_genes <- data.frame(rawCounts$gene_name) 
+#annotated_genes <- data.frame(rownames(rawCounts), annotated_genes) # Create a new data frame with row names and the gene_name column
+#colnames(annotated_genes) <- c("ensembl_id", "gene_name") # Rename the columns for clarity
 
-rawCounts <- rawCounts %>% 
-  dplyr::select(-"gene_name")
 #get list of IDs you need the metadata for (all those with RNAseq counts)
 #note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A.... and TCGA-61-2008-02A.... the 7-8th number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)
 #filter to include only primary tumours
@@ -128,17 +126,54 @@ colnames(rawCounts) <- substr(colnames(rawCounts), 1, 12)
 
 missing_contrast <- meta_rawCounts_matched[is.na(meta_rawCounts_matched$contrast_group),]
 
-rawCounts <- rawCounts[,!colnames(rawCounts) %in% missing_contrast$submitter_id]
+rawCounts_final <- rawCounts[,!colnames(rawCounts) %in% missing_contrast$submitter_id] 
+# rawCounts_final <- cbind(rawCounts$gene_name, rawCounts_final) %>% 
+# dplyr::rename(gene_name = "rawCounts$gene_name")
 
 meta_rawCounts_matched <- meta_rawCounts_matched[!is.na(meta_rawCounts_matched$contrast_group),]
 ```
 
+**Annotate genes - not necessary if using gene_names present in rawCounts data.**
+
+```{r geneAnnotation}
+
+colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL") #defines the columns you want to select from the gene annotation database
+
+geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provides annotations for the human genome
+                                       keys = ensembl_id, 
+                                       columns = colGene, keytype = "ENSEMBL") #queries the org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys. It retrieves the specified columns (colGene) for the provided gene IDs (gene_id) using the specified key type (ENSEMBL).
+
+#count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
+#duplicated_geneIdMap <- geneIdMap %>% 
+  #filter(duplicated(ENTREZID) &!is.na(ENTREZID)) #2812 duplicated ID
+
+
+#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID column (retaining one copy of any duplicated name)
+geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]
+geneIdMap <- geneIdMap[complete.cases(geneIdMap), ] # one gene has missing entries, remove
+genes <-  geneIdMap$ENSEMBL
+rawCounts_final <- rawCounts[genes, ]
+ 
+rawCounts_final <- rawCounts_final[,!colnames(rawCounts) %in% missing_contrast$submitter_id]
+rawCounts_final <- rawCounts_final[complete.cases(rawCounts_final), ]
+# Human Ensembl/GENCODE gene accession numbers start with ENSG followed by a number and version number separated by a dot. 
+ensembl <- data.frame(ensembl_id = rownames(rawCounts_final)) %>%  #create a data frame with a column for row names
+  separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.")  #escape the dot in sep argument using \\. because the dot is a special character
+
+ensembl_id <- as.character(ensembl$ensembl_id) # don't need version number for now, keys must be provided as character 
+
+geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ] 
+
+
+#(question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
+
+```
 
 **Create a DGE object for DE analysis.**
 #NOTE need to delete the first DGEList object and run the two below if I am creating two separate DGEList objects for each contrast
 ```{r dgeObject}
 
-dge <- DGEList(counts = rawCounts, genes = annotated_genes$gene_id, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) # contains all samples in one object 
+dge <- DGEList(counts = rawCounts_final, genes = geneIdMap, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) # contains all samples in one object 
 
 ```
 
@@ -317,7 +352,7 @@ volcanoplot(
   fittedContrasts,             # The fitted contrasts object
   coef = "groupHRD_low - groupBRCA1_2_loss",                    # Specify the contrast (coefficient) you want to visualize
   highlight = 10,               # The number of top genes to highlight (you can adjust this)
-  names = annotated_genes$gene_name,        # The gene symbols (replace 'genes$SYMBOL' with the actual gene symbol data)
+  names = fittedContrasts$genes$SYMBOL,    # The gene symbols (replace 'genes$SYMBOL' with the actual gene symbol data)
   main = "Volcano Plot"        # Title for the plot (replace with your desired title)
 )
 
@@ -325,72 +360,43 @@ volcanoplot(
 #y-axis - statistical significance 
 #each gene = a dot
 
-logFC_contrast_low <- fittedContrasts$coefficients[, "groupHRD_low - groupBRCA1_2_loss"]
-EnhancedVolcano::EnhancedVolcano(
-  fittedContrasts,
-  x = logFC_contrast_low,  # fittedContrasts$coefficients
-  y = "logP",           # Specify the negative log10-transformed p-values
-  title = "Volcano Plot",
-  lab = annotated_genes$gene_name
-)
-```
+limma::plotMA(fittedContrasts, coef = "groupHRD_low - groupBRCA1_2_loss", status = dt[ ,"groupHRD_low - groupBRCA1_2_loss"], hl.pch = 20, bg.col = "grey") #MA plot displays log-fold change against the average log expression for each gene 
+o <- order(fittedContrasts$p.value[,"groupHRD_low - groupBRCA1_2_loss"]) # orders the genes based on their p-value from DEA
+x <- fittedContrasts$Amean #extracts the average log-expression values (Amean) for all genes 
+y <- fittedContrasts$coefficients[,"groupHRD_low - groupBRCA1_2_loss"] #extracts the log fold change values (coefficients) for the contrast group 
+G <- fittedContrasts$genes$SYMBOL #extracts the gene names for genes in the fittedContrasts objects 
+text(x[o[1:10]], y[o[1:10]],labels = G[o[1:10]], 
+     cex = 0.7,  # Adjust the label size (0.7 means 70% of the default size)
+     col = "black",  # Change label color to blue
+     srt = 45) # to show the top 6 DE gene symbols
 
 
-
-**redundant**
-**steps which were required before running DGEList**
-
-**Annotate genes - not necessary if using gene_names present in rawCounts data.**
-
-```{r geneAnnotation}
- # Human Ensembl/GENCODE gene accession numbers start with ENSG followed by a number and version number separated by a dot. 
-ensembl <- data.frame(ensembl_id = rownames(rawCounts)) %>%  #create a data frame with a column for row names
-  separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.")  #escape the dot in sep argument using \\. because the dot is a special character
-
-ensembl_id <- as.character(ensembl$ensembl_id) # don't need version number for now, keys must be provided as character 
-
-
-colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL") #defines the columns you want to select from the gene annotation database
-
-geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provides annotations for the human genome
-                                       keys = ensembl_id, 
-                                       columns = colGene, keytype = "ENSEMBL") #queries the org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys. It retrieves the specified columns (colGene) for the provided gene IDs (gene_id) using the specified key type (ENSEMBL).
-
-count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
-duplicated_geneIdMap <- geneIdMap %>% 
-  filter(duplicated(ENTREZID) &!is.na(ENTREZID)) #2812 duplicated ID
-
-#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID column (retaining one copy of any duplicated name)
-geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]
-
-geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ] 
-geneIdMap <- geneIdMap[complete.cases(geneIdMap), ] # one gene has missing entries, remove
-
-genes <-  geneIdMap$ENSEMBL
-
-#(question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
 
 ```
 
-
-**Create matrix of read counts.**
+**Gene ontology analyiss with Goana.**
+*end up with 0 for ENTREZID*
 
 ```{r}
+# subset DE genes to include those of great significance and large-ish logFC
+genesDE_HRDhigh <- results_HRDhigh %>%
+  mutate(bigLogFC = case_when(logFC < -1.0 | logFC > 1.0 ~ "keep",
+                              TRUE ~ "discard")) %>% 
+  dplyr::filter(bigLogFC == "keep") %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(ENTREZID) 
+genesDE_HRDhigh <- as.vector(genesDE_HRDhigh)  
 
-rawCountsCleaned <- as.matrix(rawCounts[genes, ]) %>% # filters the raw count data for genes that match the annotated expression data and converts to a matrix 
-  apply( 2, function(x) as.numeric(trimws(x))) 
-rownames(rawCountsCleaned) <- rownames(rawCounts[genes, ])
+## gene ontology
+gene_ont <- goana(genesDE_HRDhigh)
+ topGO(gene_ont)
 
-#apply(...) applies the function that removes leading spaces and converts values to numeric for each column of the filtered and converted matrix....
-   #apply is used to apply a function to each column (indicated by '2')
-   #the function is an anonymous function created using function(x) - Inside the function: trimws(x): removes leading and trailing white spaces from the character values in column x which are then converted to numbers.
-count(is.na(meta_rawCounts_matched$contrast_group)) #DGEList can't accept NA values
+gene_ont$adj.P.Val <- p.adjust(gene_ont$P.ENTREZID, method="BH")
 
- meta_rawCounts_matched <- meta_rawCounts_matched %>% 
-  mutate(contrast_group = if_else(is.na(contrast_group), "unknown", contrast_group)) #if NA in contrast_group, replace with "unknown", otherwise keep contrast_group entry
+gene_ont <- gene_ont %>% 
+  rownames_to_column(var = "goTerm")
 
-
-dge <- DGEList(counts = rawCountsCleaned, genes = geneIdMap_clean$ENTREZID, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) 
+#write_csv(gene_ont, "TCGA_DGE_geneOntology_ELythgoe_20230906.csv")
 
 ```
 
