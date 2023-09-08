@@ -136,9 +136,11 @@ meta_rawCounts_matched <- meta_rawCounts_matched[!is.na(meta_rawCounts_matched$c
 **Annotate genes - not necessary if using gene_names present in rawCounts data.**
 
 ```{r geneAnnotation}
-
+columns(org.Hs.eg.db)
 colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL") #defines the columns you want to select from the gene annotation database
-
+ensembl <- data.frame(ensembl_id = rownames(rawCounts_final)) %>% 
+  separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.") 
+ensembl_id <- as.character(ensembl$ensembl_id)
 geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provides annotations for the human genome
                                        keys = ensembl_id, 
                                        columns = colGene, keytype = "ENSEMBL") #queries the org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys. It retrieves the specified columns (colGene) for the provided gene IDs (gene_id) using the specified key type (ENSEMBL).
@@ -156,11 +158,7 @@ rawCounts_final <- rawCounts[genes, ]
  
 rawCounts_final <- rawCounts_final[,!colnames(rawCounts) %in% missing_contrast$submitter_id]
 rawCounts_final <- rawCounts_final[complete.cases(rawCounts_final), ]
-# Human Ensembl/GENCODE gene accession numbers start with ENSG followed by a number and version number separated by a dot. 
-ensembl <- data.frame(ensembl_id = rownames(rawCounts_final)) %>%  #create a data frame with a column for row names
-  separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.")  #escape the dot in sep argument using \\. because the dot is a special character
 
-ensembl_id <- as.character(ensembl$ensembl_id) # don't need version number for now, keys must be provided as character 
 
 geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ] 
 
@@ -168,6 +166,22 @@ geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ]
 #(question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
 
 ```
+**Create rawCounts_final in EcoTyper format**
+
+```{r}
+
+EcoTyper_counts <- rawCounts_final %>%
+  rownames_to_column("gene_id") %>%  
+  separate(gene_id, into = c("ENSEMBL", "version_number"), sep = "\\." ) %>% 
+  group_by(ENSEMBL) %>% 
+  summarize(across(where(is.numeric), median)) #collapse transcript variants into median value for that ENSEMBL ID as separating version numbers from ENSEMBL creates duplicates 
+
+EcoTyper_final <- EcoTyper_counts %>% 
+  inner_join(geneIdMap %>% dplyr::select(ENSEMBL, SYMBOL), by = "ENSEMBL")# %>% 
+ save <- EcoTyper_final %>%  dplyr::select(-ENSEMBL) %>% write_delim("./Data/Processed/20230908_EcoTyperCountsMappedMedian.tsv", delim="\t")
+
+```
+
 
 **Create a DGE object for DE analysis.**
 #NOTE need to delete the first DGEList object and run the two below if I am creating two separate DGEList objects for each contrast
@@ -177,6 +191,23 @@ dge <- DGEList(counts = rawCounts_final, genes = geneIdMap, samples = meta_rawCo
 
 ```
 
+**Create rawCounts_final in EcoTyper format**
+
+```{r}
+
+EcoTyper_counts <- as.data.frame(dgeFilExp$counts) %>%
+  rownames_to_column("gene_id") %>%  
+  separate(gene_id, into = c("ENSEMBL", "version_number"), sep = "\\." ) %>% 
+   group_by(ENSEMBL) %>% 
+  summarize(across(where(is.numeric), median))
+ # Remove duplicates from geneIdMap
+ geneIdMap_unique <- distinct(geneIdMap, ENSEMBL, .keep_all = TRUE)
+
+EcoTyper_final <- as.data.frame(EcoTyper_counts) %>% 
+  inner_join(geneIdMap_unique %>% dplyr::select(ENSEMBL, SYMBOL), by = "ENSEMBL")# %>% 
+ EcoTyper_final %>%  dplyr::select(-ENSEMBL) %>% write_delim("./Data/Processed/20230908_EcoTyperCountsMappedMedian.tsv", delim="\t")
+
+```
 
 **Filter lowly expressed genes.**
 *Using manual filtering and the filterByExp() function*
