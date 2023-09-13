@@ -29,3 +29,7 @@
   -c Tissue -o tcga_all_samples_060722 
 
   Rscript EcoTyper_recovery_bulk.R -d Carcinoma -m example_data/bulk_lung_data.txt -a example_data/bulk_lung_annotation.txt -c Tissue -o RecoveryOutput
+
+  Rscript /home/lythgo02/ecotyper/EcoTyper_source_code/ecotyper-master/EcoTyper_recovery_bulk.R -d Carcinoma -m /home/lythgo02/ecotyper/EcoTyper_source_code/ecotyper-master/20230908_EcoTyperCountsMappedMedian.tsv
+ -c Tissue  -o Test_20230908
+

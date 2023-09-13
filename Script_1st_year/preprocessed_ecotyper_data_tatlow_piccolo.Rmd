@@ -14,7 +14,7 @@ library(readr)
 
 
 ```{r loading the data}
-#using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
+#using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 https://www.nature.com/articles/srep39259 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
 #TCGA_OV_tpm.tsv.gz from https://osf.io/64ts9/ 
 
 #In coordination with the Institute for Systems Biology (ISB)34, Tatlow and Piccolo used Google Cloud Platform to process 12,307 RNA-Sequencing samples from the CCLE and TCGA projects. After preprocessing, they aligned sequencing reads to the most current GENCODE reference transcriptome (see Methods) and calculated transcript-expression levels using kallisto, a pseudoalignment and read-quantification program.
@@ -26,10 +26,11 @@ library(readr)
 #The IDs used in the TCGA matrices are CGHubAnalysisIDs, which you can't search on the Genomic Data Commons. If you want to change these IDs to something else, you can use map_TCGA_id.py and TCGA_ID_MAP.csv to change them to Aliquot Barcodes or Aliquot ID's, just know that neither of these two identifiers are unique.
 
 #note The 'havana_gene' and 'havana_transcript' attributes indicate the internal gene and transcript stable ids used by Havana and are also the main identifiers in the (now archived) Vega genome browser.They start with 'OTTHUM' and 'OTTMUS' for human and mouse respectively.
-TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/TCGA_OV_tpm.tsv", 
+TCGA_tpm<- read_delim("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TCGA_OV_tpm.tsv",
     delim = "\t", escape_double = FALSE, 
-    trim_ws = TRUE) %>% 
- rename(id=...1) %>% #rename the first column 
+    trim_ws = TRUE)
+TCGA_OV_tpm <- TCGA_OV_tpm %>% 
+ dplyr::rename(id=...1) %>% #rename the first column 
   separate( col = id, #separating out the identifiers in the first column by non alphanumeric characters
             into=c(	"ensembl_transcript_id_version", 	#matching to the names in ensembl filters
                     "ensembl_gene_id_version", 
@@ -39,10 +40,10 @@ TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tat
                     "hgnc_symbol", 
                     "unknown_number", 
                     "transcript_type"),
-           sep='\\|', #| is a special character so requires \\
+           sep='\\|',
             remove=FALSE) 
 
-#or TCGA_OV_tpm <-TCGA_OV_tpm %>% data.frame(do.call("rbind", strsplit(as.character(TCGA_OV_tpm$id), "|", fixed=TRUE))) # separates out and adds as new columns at the end using base R
+
 
 
 ```

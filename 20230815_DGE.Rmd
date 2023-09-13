@@ -53,31 +53,24 @@ pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCG
 ```
 
 **Wrangle data**
+*Filter to include only primary samples. Note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A.... and TCGA-61-2008-02A.... the 7-8th number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)*
 
 ```{r wrangle data}
 
 # make ID column rownames
 rawCounts <- rawCounts %>% 
   column_to_rownames(var = "gene_id") #430 cases with RNAseq counts from GDC
+rawCounts <- rawCounts %>% 
+  dplyr::select(-matches("02A|TCGA-23-1023-01R")) # remove any secondary samples and TCGA-23-1023-01R (have TCGA-23-1023-01A in addition which I have kept)
 
 #the gene names are already present within the rawCounts data - use the annotation package instead as this is more reliable for matching the symbols
-#annotated_genes <- data.frame(rawCounts$gene_name) 
-#annotated_genes <- data.frame(rownames(rawCounts), annotated_genes) # Create a new data frame with row names and the gene_name column
-#colnames(annotated_genes) <- c("ensembl_id", "gene_name") # Rename the columns for clarity
 
-#get list of IDs you need the metadata for (all those with RNAseq counts)
-#note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A.... and TCGA-61-2008-02A.... the 7-8th number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)
-#filter to include only primary tumours
 primary_samples <- as.data.frame(colnames(rawCounts)) %>% 
    str_trunc(16, "right", ellipsis = "") %>% 
   clean_names() %>% 
   dplyr::rename(submitter_id = colnames_raw_counts) %>% 
-  filter(!str_detect(submitter_id,"02A") & !str_detect(submitter_id,"01R")) %>% # TCGA-23-1023 is present twice as TCGA-23-1023-01A and TCGA-23-1023-01R, I have removed 01R for now
   str_trunc(12, "right", ellipsis = "") 
   
-rawCounts <- rawCounts %>% 
-  dplyr::select(-matches("02A|TCGA-23-1023-01R")) # remove any secondary samples and TCGA-23-1023-01R
-
 #filtered_pancan <- left_join(primary_samples, pancan_contrasts) 
 
 # pull out cases not present in the pancancer table
@@ -127,8 +120,8 @@ colnames(rawCounts) <- substr(colnames(rawCounts), 1, 12)
 missing_contrast <- meta_rawCounts_matched[is.na(meta_rawCounts_matched$contrast_group),]
 
 rawCounts_final <- rawCounts[,!colnames(rawCounts) %in% missing_contrast$submitter_id] 
-# rawCounts_final <- cbind(rawCounts$gene_name, rawCounts_final) %>% 
-# dplyr::rename(gene_name = "rawCounts$gene_name")
+ rawCounts_final <- cbind(rawCounts$gene_name, rawCounts_final) %>% 
+ dplyr::rename(gene_name = "rawCounts$gene_name")
 
 meta_rawCounts_matched <- meta_rawCounts_matched[!is.na(meta_rawCounts_matched$contrast_group),]
 ```
@@ -140,27 +133,25 @@ columns(org.Hs.eg.db)
 colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL") #defines the columns you want to select from the gene annotation database
 ensembl <- data.frame(ensembl_id = rownames(rawCounts_final)) %>% 
   separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.") 
-ensembl_id <- as.character(ensembl$ensembl_id)
+#ensembl_id <- as.character(ensembl$ensembl_id)
 geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provides annotations for the human genome
-                                       keys = ensembl_id, 
+                                       keys = as.character(ensembl$ensembl_id), 
                                        columns = colGene, keytype = "ENSEMBL") #queries the org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys. It retrieves the specified columns (colGene) for the provided gene IDs (gene_id) using the specified key type (ENSEMBL).
 
 #count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
 #duplicated_geneIdMap <- geneIdMap %>% 
   #filter(duplicated(ENTREZID) &!is.na(ENTREZID)) #2812 duplicated ID
 
-
-#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID column (retaining one copy of any duplicated name)
-geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]
+geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID (retaining one copy of each duplicate)
 geneIdMap <- geneIdMap[complete.cases(geneIdMap), ] # one gene has missing entries, remove
-genes <-  geneIdMap$ENSEMBL
-rawCounts_final <- rawCounts[genes, ]
- 
+
+rawCounts_final <- rawCounts[geneIdMap$ENSEMBL, ]
 rawCounts_final <- rawCounts_final[,!colnames(rawCounts) %in% missing_contrast$submitter_id]
 rawCounts_final <- rawCounts_final[complete.cases(rawCounts_final), ]
 
-
-geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl_id, ] 
+ensembl <- data.frame(ensembl_id = rownames(rawCounts_final)) %>% 
+  separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.") #regenerate filtered list of ENSEMBL to filter geneIdMap by
+geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl$ensembl_id, ] #filter to remove rows no longer present in rawCounts_final
 
 
 #(question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
@@ -178,7 +169,7 @@ EcoTyper_counts <- rawCounts_final %>%
 
 EcoTyper_final <- EcoTyper_counts %>% 
   inner_join(geneIdMap %>% dplyr::select(ENSEMBL, SYMBOL), by = "ENSEMBL")# %>% 
- save <- EcoTyper_final %>%  dplyr::select(-ENSEMBL) %>% write_delim("./Data/Processed/20230908_EcoTyperCountsMappedMedian.tsv", delim="\t")
+ #save <- EcoTyper_final %>%  dplyr::select(-ENSEMBL) %>% write_delim("./Data/Processed/20230908_EcoTyperCountsMappedMedian.tsv", delim="\t")
 
 ```
 
