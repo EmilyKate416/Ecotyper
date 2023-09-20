@@ -1,0 +1,83 @@
+---
+title: "20230912_preprocessed_TCGAtpm_EcoTyper"
+output: html_document
+date: "2023-09-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readr)
+library(readxl)
+library(janitor)
+```
+
+#requires TCGA_OV_tpm.tsv.gz from https://osf.io/64ts9/ 
+# preprocessed TPM from Tatlow and Piccolo, 2016 https://www.nature.com/articles/srep39259 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
+
+
+#In coordination with the Institute for Systems Biology (ISB), Tatlow and Piccolo used Google Cloud Platform to process 12,307 RNA-Sequencing samples from the CCLE and TCGA projects. FASTQ files were unpacked, decompressed, and quality trimmed, kallisto was used to calculate transcript-expression levels using kallisto.
+#The FASTQ files were used as input to kallisto (version 0.43.0)35, which pseudoaligned the reads to the GENCODE reference transcriptome (version 24)59 and quantified transcript-expression levels.
+#deposited the processed data—as read counts and transcripts per million—in tabular format and in Google’s BigQuery database (see https://osf.io/gqrz9), output of kallisto
+
+#The IDs used in the TCGA matrices are CGHubAnalysisIDs, which you can't search on the Genomic Data Commons. If you want to change these IDs to something else, you can use map_TCGA_id.py and TCGA_ID_MAP.csv to change them to Aliquot Barcodes or Aliquot ID's, just know that neither of these two identifiers are unique.
+
+```{r loading the data}
+#note The 'havana_gene' and 'havana_transcript' attributes indicate the internal gene and transcript stable ids used by Havana and are also the main identifiers in the (now archived) Vega genome browser.They start with 'OTTHUM' and 'OTTMUS' for human and mouse respectively.
+TCGA_tpm<- 
+  read_delim("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TCGA_OV_tpm.tsv",
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+TCGA_OV_tpm <- TCGA_OV_tpm %>% 
+ dplyr::rename(id=...1) %>% #rename the first column 
+  separate( col = id, #separating out the identifiers in the first column by non alphanumeric characters
+            into=c(	"ensembl_transcript_id_version", 	#matching to the names in ensembl filters
+                    "ensembl_gene_id_version", 
+                    "havana_gene_id_version", 
+                    "havana_transcript_id_version", 
+                    "hgnc_trans_name", 
+                    "hgnc_symbol", 
+                    "unknown_number", 
+                    "transcript_type"),
+           sep='\\|',
+            remove=FALSE) 
+
+```
+ 
+```{r load and tidy the EcoTyper results for the same dataset from Luca et al., 2021}
+
+ecotype_abundances <-read_excel("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2021_Atlas_of_clinically_distinct_cell_states/1-s2.0-S0092867421010618-mmc6.xlsx", 
+    sheet = "S6A", col_names = FALSE) %>% # contains the data for all indications from TCGA Tatlow and Picollo., 2016, not just ovarian dataset 
+  row_to_names(row_number = 5) %>%  
+  clean_names() %>% 
+  as.data.frame() %>% 
+  rename(aliquot_barcode=na, 
+         dominant_CE = na_2)
+
+ecotype_abundances$aliquot_barcode <- str_replace_all(ecotype_abundances$aliquot_barcode, "\\.", "-") # match format in ID map
+
+```
+
+**check from here**
+
+
+```{r load the ID map from Tatlow and Picollo., 2016 metadata } 
+ TCGA_id_map <- 
+  read_csv("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TCGA_ID_MAP.csv") %>% clean_names() %>%
+   as.data.frame() %>% 
+   dplyr::filter(disease=="OV")
+```
+**266 from the author_ecotype_abundances match up to IDs from the Tatlow and Piccolo ID map (Luca and Steen only included 266 TCGA ovarian cancer samples in their analysis)**
+```{r match TCGA ID in Luca data to CG hub analysis ID}
+#Luca data identified by TCGA ID, mine are identified by CG hub analysis ID (which are contained attached to relevant TCGA ID within ID map)
+ecotype_abundancesID <- full_join(ecotype_abundances, TCGA_id_map) %>% 
+  dplyr::filter(disease=="OV") %>% 
+  na.omit() %>%  
+  mutate_at(c('ce1', 'ce2', 'ce3', 'ce4', 'ce5', 'ce6', 'ce7', 'ce8', 'ce9', 'ce10'), as.numeric) %>% 
+  write_delim("I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Processed/20230920_Luca_CEdataOV.tsv", delim = "\t")
+
+ 
+```

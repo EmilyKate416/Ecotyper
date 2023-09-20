@@ -50,12 +50,16 @@ pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCG
                         delim = "\t", escape_double = FALSE, trim_ws = TRUE) %>% 
                         dplyr::rename(submitter_id = name) %>%
                         mutate(submitter_id = str_trunc(submitter_id, 12, "right", ellipsis = "")) # some samples have additional letters at the end (unsure if this is vial number), remove these letters from name
+
+ecotype_abundances <- read_delim("Data/Processed/20230920_Luca_CEdataOV.tsv", delim = "\t") %>% 
+  dplyr::rename(submitter_id = aliquot_barcode)  %>% 
+  dplyr::select(-cg_hub_analysis_id, -aliquot_id, -disease)
 ```
 
 **Wrangle data**
 *Filter to include only primary samples. Note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A.... and TCGA-61-2008-02A.... the 7-8th number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)*
 
-```{r wrangle data}
+```{r wrangle data, message=FALSE}
 
 # make ID column rownames
 rawCounts <- rawCounts %>% 
@@ -101,8 +105,22 @@ meta_plus_contrast <- meta_plus_contrast %>%
 #mutate line: the left_join merges the two tables by ID but keeps both contrast columns (renamed as contrast_group.y and contrast_group.x). The mutate creates a new column contrast_group, checks for NA in the contrast_group.y column and enters the value of the contrast_group.x column in the new contrast_group column if it is NA, otherwise it enters the value in the conrast_group.y column. 
 
 #note if using if_else() from dplyr, use | and & as comparison operators, but if using if and else from base r, use || and && as comparison operators
+```
 
- tabyl(meta_plus_contrast$contrast_group)
+```{r wrangle ecotype data }
+
+ecotype_abundances <- ecotype_abundances %>% 
+  mutate(submitter_id_trunc = str_trunc(submitter_id, 12, "right", ellipsis = ""))
+  
+subset_rows <- ecotype_abundances %>%
+  filter(duplicated(submitter_id_trunc) | duplicated(submitter_id_trunc, fromLast = TRUE)) ##The first call to duplicated marks the first occurrence of each duplicate, and the second call to duplicated with the fromLast = TRUE argument marks the last occurrence of each duplicate.
+
+ecotype_abundances <- ecotype_abundances %>%
+ dplyr::filter(!str_detect( submitter_id, "02A")) %>%  # should I discard secondary?
+  dplyr::select(-submitter_id) %>% 
+  dplyr::rename(submitter_id = submitter_id_trunc)
+
+meta_plus_contrast <- full_join( meta_plus_contrast, ecotype_abundances, by="submitter_id")
 ```
 **matching primary samples in rawcounts to samples in meta data**
 ```{r}
@@ -182,24 +200,6 @@ dge <- DGEList(counts = rawCounts_final, genes = geneIdMap, samples = meta_rawCo
 
 ```
 
-**Create rawCounts_final in EcoTyper format**
-
-```{r}
-
-EcoTyper_counts <- as.data.frame(dgeFilExp$counts) %>%
-  rownames_to_column("gene_id") %>%  
-  separate(gene_id, into = c("ENSEMBL", "version_number"), sep = "\\." ) %>% 
-   group_by(ENSEMBL) %>% 
-  summarize(across(where(is.numeric), median))
- # Remove duplicates from geneIdMap
- geneIdMap_unique <- distinct(geneIdMap, ENSEMBL, .keep_all = TRUE)
-
-EcoTyper_final <- as.data.frame(EcoTyper_counts) %>% 
-  inner_join(geneIdMap_unique %>% dplyr::select(ENSEMBL, SYMBOL), by = "ENSEMBL")# %>% 
- EcoTyper_final %>%  dplyr::select(-ENSEMBL) %>% write_delim("./Data/Processed/20230908_EcoTyperCountsMappedMedian.tsv", delim="\t")
-
-```
-
 **Filter lowly expressed genes.**
 *Using manual filtering and the filterByExp() function*
 
@@ -271,6 +271,20 @@ legend("topright", legend = c("Stage IC", "IIA", "IIB", "IIC", "IIIA", "IIIB", "
 
 
 ```
+
+```{r}
+
+CE <- interaction(dgeFilExpNorm$samples$dominant_CE)
+
+levels(CE) <- c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse", "#F8766D", "#00BFC4" , "black", "pink") 
+CE <- as.character(CE) 
+
+plotMDS(dgeFilExpNorm, col = CE, labels = NULL, pch = 20)
+legend("topright", legend = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10", "Unassigned", "NA"), fill =  c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse",  "#F8766D", "#00BFC4", "black", "pink" ) )
+
+
+```
+
 ```{r}
 
 age_at_diagnosis <- interaction(dgeFilExpNorm$samples$age_at_diagnosis)
