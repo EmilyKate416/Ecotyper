@@ -14,7 +14,7 @@ library(readr)
 
 
 ```{r loading the data}
-#using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 https://www.nature.com/articles/srep39259 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
+#using preprocessed TCGA-OV TPM from Tatlow and Piccolo, 2016 as was used in Steen et al., 2021 Atlas of clinically distinct cell states and ecosystems across human solid tumors
 #TCGA_OV_tpm.tsv.gz from https://osf.io/64ts9/ 
 
 #In coordination with the Institute for Systems Biology (ISB)34, Tatlow and Piccolo used Google Cloud Platform to process 12,307 RNA-Sequencing samples from the CCLE and TCGA projects. After preprocessing, they aligned sequencing reads to the most current GENCODE reference transcriptome (see Methods) and calculated transcript-expression levels using kallisto, a pseudoalignment and read-quantification program.
@@ -26,11 +26,10 @@ library(readr)
 #The IDs used in the TCGA matrices are CGHubAnalysisIDs, which you can't search on the Genomic Data Commons. If you want to change these IDs to something else, you can use map_TCGA_id.py and TCGA_ID_MAP.csv to change them to Aliquot Barcodes or Aliquot ID's, just know that neither of these two identifiers are unique.
 
 #note The 'havana_gene' and 'havana_transcript' attributes indicate the internal gene and transcript stable ids used by Havana and are also the main identifiers in the (now archived) Vega genome browser.They start with 'OTTHUM' and 'OTTMUS' for human and mouse respectively.
-TCGA_tpm<- read_delim("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TCGA_OV_tpm.tsv",
+TCGA_OV_tpm <- read_delim("/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/ecotyper_input_datasets/TCGA_OV_tpm.tsv", 
     delim = "\t", escape_double = FALSE, 
-    trim_ws = TRUE)
-TCGA_OV_tpm <- TCGA_OV_tpm %>% 
- dplyr::rename(id=...1) %>% #rename the first column 
+    trim_ws = TRUE)%>% 
+   dplyr::rename(id="...1") %>% #rename the first column 
   separate( col = id, #separating out the identifiers in the first column by non alphanumeric characters
             into=c(	"ensembl_transcript_id_version", 	#matching to the names in ensembl filters
                     "ensembl_gene_id_version", 
@@ -40,10 +39,10 @@ TCGA_OV_tpm <- TCGA_OV_tpm %>%
                     "hgnc_symbol", 
                     "unknown_number", 
                     "transcript_type"),
-           sep='\\|',
+           sep='\\|', #| is a special character so requires \\
             remove=FALSE) 
 
-
+#or TCGA_OV_tpm <-TCGA_OV_tpm %>% data.frame(do.call("rbind", strsplit(as.character(TCGA_OV_tpm$id), "|", fixed=TRUE))) # separates out and adds as new columns at the end using base R
 
 
 ```
@@ -59,7 +58,7 @@ variants <-TCGA_OV_tpm %>%
   summarise(counts=n())
 
  TCGA_OV_tpm_coding <- TCGA_OV_tpm %>%  #removing retained introns, pseudogene reads, nonsense mediated decay and other non-coding transcripts
-   filter(transcript_type=='protein_coding') #shrinks from 199169 to 79930 rows with transcript variants from 19594 genes
+   dplyr::filter(transcript_type=='protein_coding') #shrinks from 199169 to 79930 rows with transcript variants from 19594 genes
  
 # (Intron retention (IR) is an alternative splicing mode whereby introns, rather than being spliced out as usual, are retained in mature mRNAs. Nonsense mediated decay reduces errors in gene expression by eliminating mRNA transcripts that contain premature stop codons.).
  TCGA_OV_tpm_coding %>%  
@@ -84,7 +83,8 @@ variants <-TCGA_OV_tpm %>%
            -transcript_type) %>% 
      group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>% 
       summarise(across(!c(hgnc_symbol), sum))#%>% 
-    #write_delim(file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow and Piccolo 2016/tatlow_picollo_2016_for_ecotyper_1.tsv", delim="\t")
+    
+#write_delim(collapsed, "/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/ecotyper_input_datasets/TatlowPicollo2016_TCGAOVtpmSummed.tsv", delim="\t")
 ```
 
 ```{r or taking the median TPM of transcript versions,eval=FALSE, include=FALSE}
@@ -100,7 +100,7 @@ huh <-TCGA_OV_tpm_coding %>%
   group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>%
    summarise(across(where(is.numeric),list(median = median)))
 
-write_delim(huh, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/tatlow_picollo_2016_for_ecotyper_2_median_all.tsv", delim="\t")
+#write_delim(huh, file="/home/lythgo02/ecotyper/downloading_ecotyper_data/Tatlow_and_Piccolo_2016/ecotyper_input_datasets/TatlowPicollo2016_TCGAOVtpmMedian.tsv", delim="\t")
 ```
 
 SplicingFactory is an R package for the analysis of alternative splicing isoform diversity. The package provides the ability to generate gene-level Shannon-entropy values and other diversity measures, such as the Gini- or Simpson-index. These measures can quantify transcript isoform diversity within samples or between conditions. Additionally, the package analyzes the isoform diversity data, looking for significant changes between conditions. A basic task during analysis is to use read counts or TPM to calculate a diversity measure and then perform a differential analysis to identify genes with a significant change between conditions. 

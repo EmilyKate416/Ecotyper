@@ -54,6 +54,11 @@ pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCG
 ecotype_abundances <- read_delim("Data/Processed/20230920_Luca_CEdataOV.tsv", delim = "\t") %>% 
   dplyr::rename(submitter_id = aliquot_barcode)  %>% 
   dplyr::select(-cg_hub_analysis_id, -aliquot_id, -disease)
+
+#ecotype_abundances <- read_delim("Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt ", delim = "\t") %>% 
+ # dplyr::rename(submitter_id = aliquot_barcode)  %>% 
+  #dplyr::select(-cg_hub_analysis_id, -aliquot_id, -disease)
+
 ```
 
 **Wrangle data**
@@ -262,12 +267,13 @@ legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c(
 ```{r}
 
 stage <- interaction(dgeFilExpNorm$samples$figo_stage)
+stageCol <- stage
 # Levels: Stage IC, IIA, IIB, IIC, IIIA, IIIB, IIIC, IV
-levels(stage) <- c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse" ) 
-stage <- as.character(stage) 
+levels(stageCol) <- c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "grey", "chartreuse" ) 
+stageCol <- as.character(stageCol) 
 
-plotMDS(dgeFilExpNorm, col = stage, labels = NULL, pch = 20)
-legend("topright", legend = c("Stage IC", "IIA", "IIB", "IIC", "IIIA", "IIIB", "IIIC", "IV"), fill =  c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse" ) )
+plotMDS(dgeFilExpNorm, col = stageCol, labels = NULL, pch = 20)
+legend("topright", legend = c("Stage IC", "IIA", "IIB", "IIC", "IIIA", "IIIB", "IIIC", "IV"), fill =  c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "grey", "chartreuse" ) )
 
 
 ```
@@ -275,31 +281,27 @@ legend("topright", legend = c("Stage IC", "IIA", "IIB", "IIC", "IIIA", "IIIB", "
 ```{r}
 
 CE <- interaction(dgeFilExpNorm$samples$dominant_CE)
+CEcol <- CE
+levels(CEcol) <- c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse", "#F8766D", "#00BFC4" , "black", "pink") 
+CEcol <- as.character(CEcol) 
 
-levels(CE) <- c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse", "#F8766D", "#00BFC4" , "black", "pink") 
-CE <- as.character(CE) 
-
-plotMDS(dgeFilExpNorm, col = CE, labels = NULL, pch = 20)
+plotMDS(dgeFilExpNorm, col = CEcol, labels = NULL, pch = 20)
 legend("topright", legend = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10", "Unassigned", "NA"), fill =  c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse",  "#F8766D", "#00BFC4", "black", "pink" ) )
 
 
 ```
+**Looks like I could account for CE within the model? Some separation **
 
-```{r}
-
-age_at_diagnosis <- interaction(dgeFilExpNorm$samples$age_at_diagnosis)
-
-plotMDS(dgeFilExpNorm, col = age_at_diagnosis, labels = NULL, pch = 20)
-
-```
 ```{r}
 
 site <- interaction(dgeFilExpNorm$samples$site_of_resection_or_biopsy)
+siteCol <- site
+levels(siteCol) <- c("darkorange", "cornflowerblue")
 
-plotMDS(dgeFilExpNorm, col = site, labels = NULL, pch = 20)
+plotMDS(dgeFilExpNorm, col = siteCol, labels = NULL, pch = 20)
 
 ```
-These MDS plots are *extremely* important. They show what most of your variation comes from. These covariates need to be included in our design matrix, since we are primarily interested in BRCA1/2 and HRD status.
+
 
 
 **Define the design matrix.**
@@ -307,8 +309,8 @@ These MDS plots are *extremely* important. They show what most of your variation
 ```{r}
 
 # specify the model to be fitted
-modelMatrix <- model.matrix(~ 0 + group , data=dgeFilExpNorm) # specifies the design of the linear model
-# currently not adjusting for any additional covariates
+modelMatrix <- model.matrix(~ 0 + group, data=dgeFilExpNorm) # specifies the design of the linear model
+
 ```
 
 **Voom transformation.** 
@@ -319,8 +321,8 @@ modelMatrix <- model.matrix(~ 0 + group , data=dgeFilExpNorm) # specifies the de
 voom <- voom(dgeFilExpNorm, modelMatrix, plot = TRUE) #voom transformation transforms counts to log2 CPM based on the normalisation factors calculated earlier. It also fits a linear model to the log2 CPM for each gene (row-wise), calculates the residuals, and then fits a smoothed curve to the square root of the residual standard deviation by average expression. The smoothed curve is used to obtain weights for each gene and sample, which are then passed into limma for DEA taking into account the variability of each gene.
 
 # look at diagnostic plots
-plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20)
-legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c("#F8766D", "#00BFC4", "#00BA38"))
+#plotMDS(dgeFilExpNorm, col = CEcol, labels = NULL, pch = 20)
+#legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c("#F8766D", "#00BFC4", "#00BA38"))
 
 ```
 

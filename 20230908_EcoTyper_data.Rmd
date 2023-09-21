@@ -27,13 +27,35 @@ library(janitor)
 
 ```{r loading the data}
 #note The 'havana_gene' and 'havana_transcript' attributes indicate the internal gene and transcript stable ids used by Havana and are also the main identifiers in the (now archived) Vega genome browser.They start with 'OTTHUM' and 'OTTMUS' for human and mouse respectively.
-TCGA_tpm<- 
-  read_delim("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TCGA_OV_tpm.tsv",
+TCGA_OV_tpm <- read_delim("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TCGA_OV_tpm.tsv", 
     delim = "\t", escape_double = FALSE, 
     trim_ws = TRUE)
+```
+ 
+```{r load the ID map from Tatlow and Picollo., 2016 metadata } 
+ TCGA_id_map <- 
+  read_csv("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TCGA_ID_MAP.csv") %>% clean_names() %>%
+   as.data.frame() %>% 
+   dplyr::filter(disease=="OV")
+```
+```{r change the sample names in TCGA_OV_tpm to match formatting elsewhere}
+
+# Extract the cg_hub_analysis_id values from TPMmedian row names
+cg_hub_ids <- colnames(TCGA_OV_tpm)
+
+# Match cg_hub_ids with aliquot_barcode values from TCGA_id_map
+matching_barcodes <- TCGA_id_map$cg_hub_analysis_id %in% cg_hub_ids
+
+# Create a mapping from cg_hub_analysis_id to aliquot_barcode
+id_to_barcode_map <- setNames(TCGA_id_map$aliquot_barcode, TCGA_id_map$cg_hub_analysis_id)
+
+# Rename columns in TPMmedian based on the matched aliquot_barcode values
+colnames(TCGA_OV_tpm) <- id_to_barcode_map[cg_hub_ids]
+
+# TPMmedian now has columns renamed based on the matched aliquot_barcode values
 TCGA_OV_tpm <- TCGA_OV_tpm %>% 
- dplyr::rename(id=...1) %>% #rename the first column 
-  separate( col = id, #separating out the identifiers in the first column by non alphanumeric characters
+  clean_names() %>% 
+  separate( col = na, #separating out the identifiers in the first column by non alphanumeric characters
             into=c(	"ensembl_transcript_id_version", 	#matching to the names in ensembl filters
                     "ensembl_gene_id_version", 
                     "havana_gene_id_version", 
@@ -42,11 +64,50 @@ TCGA_OV_tpm <- TCGA_OV_tpm %>%
                     "hgnc_symbol", 
                     "unknown_number", 
                     "transcript_type"),
-           sep='\\|',
+           sep='\\|', #| is a special character so requires \\
             remove=FALSE) 
-
 ```
+
+```{r filtering out unwanted transcripts}
+categories <-  # take a look at what makes up the data: 79930 protein coding transcripts
+TCGA_OV_tpm %>% 
+  group_by(transcript_type) %>% 
+  summarise(transcript_type_count = n())
+
+variants <-TCGA_OV_tpm %>% 
+  group_by(`hgnc_symbol`) %>% 
+  summarise(counts=n())
+
+ TCGA_OV_tpm_coding <- TCGA_OV_tpm %>%  #removing retained introns, pseudogene reads, nonsense mediated decay and other non-coding transcripts
+   dplyr::filter(transcript_type=='protein_coding') #shrinks from 199169 to 79930 rows with transcript variants from 19594 genes
  
+# (Intron retention (IR) is an alternative splicing mode whereby introns, rather than being spliced out as usual, are retained in mature mRNAs. Nonsense mediated decay reduces errors in gene expression by eliminating mRNA transcripts that contain premature stop codons.).
+ TCGA_OV_tpm_coding %>%  
+   summarise(distinct_genes = n_distinct(hgnc_symbol)) #19594 genes 
+ 
+ variants_2 <- TCGA_OV_tpm_coding %>%  # taking a look at which genes have multiple transcript versions 
+   group_by(hgnc_symbol) %>% 
+   summarise(counts=n())
+ 
+```
+```{r, median TPM of transcript versions,eval=FALSE, include=FALSE}
+TPMmedian <-TCGA_OV_tpm_coding %>%
+  dplyr::select(-na,
+                  -hgnc_trans_name, 
+                  -ensembl_transcript_id_version, 
+                  -ensembl_gene_id_version, 
+                  -havana_gene_id_version, 
+                  -havana_transcript_id_version,
+           -unknown_number, 
+           -transcript_type) %>% 
+  group_by(TCGA_OV_tpm_coding$hgnc_symbol) %>%
+   summarise(across(where(is.numeric),list(median = median)))
+
+write_delim(TPMmedian, "/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TatlowPicollo2016_TCGAOVtpmMedian.tsv", delim="\t")
+```
+
+
+
 ```{r load and tidy the EcoTyper results for the same dataset from Luca et al., 2021}
 
 ecotype_abundances <-read_excel("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2021_Atlas_of_clinically_distinct_cell_states/1-s2.0-S0092867421010618-mmc6.xlsx", 
@@ -60,17 +121,8 @@ ecotype_abundances <-read_excel("/research/jblab/data/group_folders/emily_lythgo
 ecotype_abundances$aliquot_barcode <- str_replace_all(ecotype_abundances$aliquot_barcode, "\\.", "-") # match format in ID map
 
 ```
-
-**check from here**
-
-
-```{r load the ID map from Tatlow and Picollo., 2016 metadata } 
- TCGA_id_map <- 
-  read_csv("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/Raw/2016_A_cloud_based_workflow_to_quantify_transcript/TCGA_ID_MAP.csv") %>% clean_names() %>%
-   as.data.frame() %>% 
-   dplyr::filter(disease=="OV")
-```
 **266 from the author_ecotype_abundances match up to IDs from the Tatlow and Piccolo ID map (Luca and Steen only included 266 TCGA ovarian cancer samples in their analysis)**
+
 ```{r match TCGA ID in Luca data to CG hub analysis ID}
 #Luca data identified by TCGA ID, mine are identified by CG hub analysis ID (which are contained attached to relevant TCGA ID within ID map)
 ecotype_abundancesID <- full_join(ecotype_abundances, TCGA_id_map) %>% 
