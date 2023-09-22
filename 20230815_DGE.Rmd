@@ -11,12 +11,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 - based on DGE script from Ashley Weir 
 
-## Data required:
-- *20230815_STARcounts_TCGAOV.tsv* produced in temp_GDC_download_serverversion.Rmd 
- - meta data from TCGA download *20230815_clinical.csv*
-- location on jblab server002: /home/lythgo02/ecotyper/20230720_TCGA_2nd_year/GDCdata/ 
-- contrast labels *20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv* produced in 20230725_TCGA_OV_stratification.Rmd 
-- location on I-drive: ./Data/Processed/
+**Data required:**
+- **20230815_STARcounts_TCGAOV.tsv** produced in temp_GDC_download_serverversion.Rmd 
+- Meta data from TCGA download **20230815_clinical.csv**
+- Location on jblab server002: /home/lythgo02/ecotyper/20230720_TCGA_2nd_year/GDCdata/ 
+- Contrast labels **20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv** produced in 20230725_TCGA_OV_stratification.Rmd 
+- Location on I-drive: ./Data/Processed/
 
 
 ```{r, message=FALSE, warning=FALSE}
@@ -35,7 +35,7 @@ library(janitor)
 library(statmod)
 ```
 
-**load data**
+**Load data**
 
 ```{r, message=FALSE}
 
@@ -49,37 +49,39 @@ meta <- read_csv("Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_clinical.c
 pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv", 
                         delim = "\t", escape_double = FALSE, trim_ws = TRUE) %>% 
                         dplyr::rename(submitter_id = name) %>%
-                        mutate(submitter_id = str_trunc(submitter_id, 12, "right", ellipsis = "")) # some samples have additional letters at the end (unsure if this is vial number), remove these letters from name
+                        mutate(submitter_id = str_trunc(submitter_id, 12, "right", ellipsis = "")) # some samples have additional letters at the end (unsure if this is vial number), remove 
 
-ecotype_abundances <- read_delim("Data/Processed/20230920_Luca_CEdataOV.tsv", delim = "\t") %>% 
-  dplyr::rename(submitter_id = aliquot_barcode)  %>% 
-  dplyr::select(-cg_hub_analysis_id, -aliquot_id, -disease)
+#CE information I generated using TPM processed by Tatlow and Piccolo,. 2016
+ecotype_abundances <- read_delim("Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt ", delim = "\t") %>% 
+  as.data.frame(transpose()) %>% 
+  clean_names()
 
-#ecotype_abundances <- read_delim("Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt ", delim = "\t") %>% 
- # dplyr::rename(submitter_id = aliquot_barcode)  %>% 
-  #dplyr::select(-cg_hub_analysis_id, -aliquot_id, -disease)
-
+#CE information produced by Luca etal., 2021, only has info for 266 samples 
+#ecotype_abundances <- read_delim("Data/Processed/20230920_Luca_CEdataOV.tsv", delim = "\t") %>% 
+     #dplyr::rename(submitter_id = aliquot_barcode)  %>% 
+     #dplyr::select(-cg_hub_analysis_id, -aliquot_id, -disease)
 ```
 
 **Wrangle data**
-*Filter to include only primary samples. Note we have more than one sequencing file for some individuals eg TCGA-61-2008-01A.... and TCGA-61-2008-02A.... the 7-8th number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes)*
+Filter to include only primary samples. Some individuals have multiple sequencing files eg TCGA-61-2008-01A... and TCGA-61-2008-02A... the 7-8th number in the sequence indicates the sample type, 01 is a primary tumour and 02 is a recurring tumour (see GDC sample type codes).
 
-```{r wrangle data, message=FALSE}
+```{r wrangle data,warning=FALSE, message=FALSE}
 
-# make ID column rownames
 rawCounts <- rawCounts %>% 
   column_to_rownames(var = "gene_id") #430 cases with RNAseq counts from GDC
 rawCounts <- rawCounts %>% 
   dplyr::select(-matches("02A|TCGA-23-1023-01R")) # remove any secondary samples and TCGA-23-1023-01R (have TCGA-23-1023-01A in addition which I have kept)
 
-#the gene names are already present within the rawCounts data - use the annotation package instead as this is more reliable for matching the symbols
+#the gene names are already present within the rawCounts data - use the annotation package instead as this is more reliable for cross-matching
 
 primary_samples <- as.data.frame(colnames(rawCounts)) %>% 
    str_trunc(16, "right", ellipsis = "") %>% 
   clean_names() %>% 
   dplyr::rename(submitter_id = colnames_raw_counts) %>% 
   str_trunc(12, "right", ellipsis = "") 
-  
+```
+
+```{r, eval=FALSE, include = FALSE}
 #filtered_pancan <- left_join(primary_samples, pancan_contrasts) 
 
 # pull out cases not present in the pancancer table
@@ -102,39 +104,62 @@ meta_plus_contrast <- cases_missing_labels %>%
   full_join(meta)
 
 # add in the contrast group info from cases_missing_labels into meta_plus_contrast group
-
 meta_plus_contrast <- meta_plus_contrast %>%  
   left_join(pancan_contrasts_shortened, by = ("submitter_id")) %>%  
   mutate(contrast_group = if_else(is.na(contrast_group.y), contrast_group.x, contrast_group.y)) %>% 
   dplyr::select(-contrast_group.x, -contrast_group.y) 
+```
+
+```{r, notes to self, include=FALSE, echo=FALSE}
 #mutate line: the left_join merges the two tables by ID but keeps both contrast columns (renamed as contrast_group.y and contrast_group.x). The mutate creates a new column contrast_group, checks for NA in the contrast_group.y column and enters the value of the contrast_group.x column in the new contrast_group column if it is NA, otherwise it enters the value in the conrast_group.y column. 
 
 #note if using if_else() from dplyr, use | and & as comparison operators, but if using if and else from base r, use || and && as comparison operators
 ```
 
-```{r wrangle ecotype data }
+```{r, wrangle ecotype data - Luca CE output, include=FALSE, eval=FALSE}
+
+# <- ecotype_abundances %>% 
+  #mutate(submitter_id_trunc = str_trunc(submitter_id, 12, "right", ellipsis = ""))
+  
+#subset_rows <- ecotype_abundances %>%
+ # filter(duplicated(submitter_id_trunc) | duplicated(submitter_id_trunc, fromLast = TRUE)) ##The first call to duplicated marks the first occurrence of each duplicate, and the second call to duplicated with the fromLast = TRUE argument marks the last occurrence of each duplicate.
+
+#ecotype_abundances <- ecotype_abundances %>%
+ #dplyr::filter(!str_detect( submitter_id, "02A")) %>%  # discarding secondary samples
+ # dplyr::select(-submitter_id) %>% 
+  #dplyr::rename(submitter_id = submitter_id_trunc)
+
+#meta_plus_contrast <- full_join( meta_plus_contrast, ecotype_abundances, by="submitter_id")
+```
+
+```{r, wrangle ecotype data - my CE output}
 
 ecotype_abundances <- ecotype_abundances %>% 
-  mutate(submitter_id_trunc = str_trunc(submitter_id, 12, "right", ellipsis = ""))
+ mutate(id=gsub("_", "-", toupper(id)), #replace underscores with hyphens and capitalise
+        submitter_id_trunc = str_trunc(id, 12, "right", ellipsis = ""))
   
-subset_rows <- ecotype_abundances %>%
+duplicate_rows <- ecotype_abundances %>%
   filter(duplicated(submitter_id_trunc) | duplicated(submitter_id_trunc, fromLast = TRUE)) ##The first call to duplicated marks the first occurrence of each duplicate, and the second call to duplicated with the fromLast = TRUE argument marks the last occurrence of each duplicate.
 
 ecotype_abundances <- ecotype_abundances %>%
- dplyr::filter(!str_detect( submitter_id, "02A")) %>%  # should I discard secondary?
-  dplyr::select(-submitter_id) %>% 
+ dplyr::filter(!str_detect(id, "02A|TCGA-23-1023-01R-01R-1564-13-MEDIAN")) %>%  # discarding secondary and recurrance samples
+  dplyr::select(-id) %>% 
   dplyr::rename(submitter_id = submitter_id_trunc)
 
 meta_plus_contrast <- full_join( meta_plus_contrast, ecotype_abundances, by="submitter_id")
+
+
 ```
-**matching primary samples in rawcounts to samples in meta data**
+
+
+**Matching primary samples in rawcounts to samples in meta data**
 ```{r}
 meta_rawCounts_matched <- meta_plus_contrast[meta_plus_contrast$submitter_id %in% primary_samples$submitter_id,]
 
 merged_data <- primary_samples %>%
   left_join(meta_rawCounts_matched, by = c("submitter_id" = "submitter_id"))
 
-# Arrange the rows based on the order of submitter_id in primary_samples
+
 meta_rawCounts_matched <- merged_data %>%
   arrange(match(submitter_id, primary_samples$submitter_id)) # Now ordered_data contains the rows from meta_rawCounts_matched in the same order as in primary_samples
 
@@ -149,17 +174,19 @@ rawCounts_final <- rawCounts[,!colnames(rawCounts) %in% missing_contrast$submitt
 meta_rawCounts_matched <- meta_rawCounts_matched[!is.na(meta_rawCounts_matched$contrast_group),]
 ```
 
-**Annotate genes - not necessary if using gene_names present in rawCounts data.**
+**Annotate genes**
 
 ```{r geneAnnotation}
 columns(org.Hs.eg.db)
 colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL") #defines the columns you want to select from the gene annotation database
 ensembl <- data.frame(ensembl_id = rownames(rawCounts_final)) %>% 
   separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.") 
-#ensembl_id <- as.character(ensembl$ensembl_id)
+
+
+#query the org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys, retrieving  the specified columns (colGene)
 geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provides annotations for the human genome
                                        keys = as.character(ensembl$ensembl_id), 
-                                       columns = colGene, keytype = "ENSEMBL") #queries the org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys. It retrieves the specified columns (colGene) for the provided gene IDs (gene_id) using the specified key type (ENSEMBL).
+                                       columns = colGene, keytype = "ENSEMBL") 
 
 #count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
 #duplicated_geneIdMap <- geneIdMap %>% 
@@ -176,40 +203,39 @@ ensembl <- data.frame(ensembl_id = rownames(rawCounts_final)) %>%
   separate(ensembl_id, into = c("ensembl_id", "version_number"), sep="\\.") #regenerate filtered list of ENSEMBL to filter geneIdMap by
 geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl$ensembl_id, ] #filter to remove rows no longer present in rawCounts_final
 
-
-#(question for Ash, is it normal to go from 60660 to 36639 rows of gene expression data after gene annotation?)
-
 ```
-**Create rawCounts_final in EcoTyper format**
 
-```{r}
 
-EcoTyper_counts <- rawCounts_final %>%
-  rownames_to_column("gene_id") %>%  
-  separate(gene_id, into = c("ENSEMBL", "version_number"), sep = "\\." ) %>% 
-  group_by(ENSEMBL) %>% 
-  summarize(across(where(is.numeric), median)) #collapse transcript variants into median value for that ENSEMBL ID as separating version numbers from ENSEMBL creates duplicates 
 
-EcoTyper_final <- EcoTyper_counts %>% 
-  inner_join(geneIdMap %>% dplyr::select(ENSEMBL, SYMBOL), by = "ENSEMBL")# %>% 
+```{r, Create rawCounts_final collapsed into median STAR count, include=FALSE, eval=FALSE}
+#Not required as EcoTyper won't take STARcounts, only TMK/FPKM
+
+#EcoTyper_counts <- rawCounts_final %>%
+ # rownames_to_column("gene_id") %>%  
+ # separate(gene_id, into = c("ENSEMBL", "version_number"), sep = "\\." ) %>% 
+ # group_by(ENSEMBL) %>% 
+ # summarize(across(where(is.numeric), median)) #collapse transcript variants into median value for that ENSEMBL ID as separating version numbers from ENSEMBL creates duplicates 
+
+#EcoTyper_final <- EcoTyper_counts %>% 
+  #inner_join(geneIdMap %>% dplyr::select(ENSEMBL, SYMBOL), by = "ENSEMBL")# %>% 
  #save <- EcoTyper_final %>%  dplyr::select(-ENSEMBL) %>% write_delim("./Data/Processed/20230908_EcoTyperCountsMappedMedian.tsv", delim="\t")
 
 ```
 
 
-**Create a DGE object for DE analysis.**
-#NOTE need to delete the first DGEList object and run the two below if I am creating two separate DGEList objects for each contrast
-```{r dgeObject}
+**Create a DGE object for DE analysis**
+
+```{r, dgeObject}
 
 dge <- DGEList(counts = rawCounts_final, genes = geneIdMap, samples = meta_rawCounts_matched, group = meta_rawCounts_matched$contrast_group) # contains all samples in one object 
 
 ```
 
 **Filter lowly expressed genes.**
-*Using manual filtering and the filterByExp() function*
+Using manual filtering and the filterByExp() function
 
-```{r }
-# filter lowly expressed genes
+```{r, filter low expression genes}
+
 cutoff <- 4
 drop <- which(apply(cpm(dge), 1, max) < cutoff) #cpm() calculates counts per million for normalisation, apply() is then used to calculate the max (using max()) CPM value across all rows (1 means all rows, 2 would mean all columns), and which() returns indices of genes where max cpm < 4
 dgeFil <- dge[-drop, , keep.lib.sizes = FALSE] 
@@ -222,18 +248,18 @@ dim(dgeFilExp) # number of genes left after manual filtering and filterByExpr
 
 ```
 
-**process all contrast groups together for now **
+**Process all contrast groups together **
 ```{r}
 #check for samples that have more counts on average than other samples 
-boxplot(log(dgeFilExp$counts + 0.5), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at raw log counts (+0.5 to prevent taking the log of 0)
-boxplot(cpm(dgeFilExp$counts, log = TRUE), xaxt = "n", col = "turquoise4", xlab = "Samples") # look at log cpm normalised counts
+boxplot(log(dgeFilExp$counts + 0.5), xaxt = "n", col = "turquoise4", xlab = "Samples") # raw log counts (+0.5 to prevent taking the log of 0)
+boxplot(cpm(dgeFilExp$counts, log = TRUE), xaxt = "n", col = "turquoise4", xlab = "Samples") # log cpm normalised counts
 
-plotSparsity(dgeFilExp$counts, normalized = TRUE) # normalised to account for variations in library size  to avoid sequencing bias
+plotSparsity(dgeFilExp$counts, normalized = TRUE) # normalised to account for variations in library size to avoid sequencing bias
 
 
 ```
 
-**Normalisation.**
+**Normalisation**
 
 ```{r}
 
@@ -245,17 +271,17 @@ title("Barplot of normalisation factors")
 
 ```
 
-**Define group for contrast interactions**
+**Define groups for contrast interactions**
 ```{r}
 
  
 group <-  interaction(dgeFilExpNorm$samples$contrast_group)
-groupCol <- group # you could just use the original interaction vector, but I like to make a new one that I will overlay colours on.
+groupCol <- group # you could just use the original interaction vector, but I like to make a new one that I will overlay colours
 levels(groupCol) <- c("#F8766D", "#00BFC4", "#00BA38") # change levels to colour names/HEX codes.
 # BRCA1/2 Loss == turquoise (#00BFC4)
 #HRD high == tomato ("#F8766D")
 #HRD low == green ("#00BA38")
-groupCol <- as.character(groupCol) # make sure R knows the colour replacements are characters.
+groupCol <- as.character(groupCol) 
 
 plotMDS(dgeFilExpNorm, col = groupCol, labels = NULL, pch = 20) #multidimensional scaling plot to visualise similarity between samples based on gene expression profiles 
 legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c("#F8766D", "#00BFC4", "#00BA38"))
@@ -263,7 +289,7 @@ legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c(
 
 ```
 **defining covariate interactions**
-#NOTE NEED to collapse the stages into 1-4, the separation may be too granular to see any possible confounders at present 
+May want to try collapsing the stages into 1-4, the separation may be too granular to see confounders at present 
 ```{r}
 
 stage <- interaction(dgeFilExpNorm$samples$figo_stage)
@@ -278,19 +304,19 @@ legend("topright", legend = c("Stage IC", "IIA", "IIB", "IIC", "IIIA", "IIIB", "
 
 ```
 
-```{r}
+```{r, EcoTyper assignments for dominant ecotype in each sample}
 
-CE <- interaction(dgeFilExpNorm$samples$dominant_CE)
+CE <- interaction(dgeFilExpNorm$samples$carcinoma_ecotype) #need to change to dominant_ecotype if using CE data from Luca et al instead of own
 CEcol <- CE
-levels(CEcol) <- c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse", "#F8766D", "#00BFC4" , "black", "pink") 
+levels(CEcol) <- c("darkorange", "cornflowerblue", "darkolivegreen1", "deeppink3", "darkorchid", "darkslateblue", "darkgrey", "chartreuse4", "darkgoldenrod4", "#00BFC4" , "black", "pink") 
 CEcol <- as.character(CEcol) 
 
 plotMDS(dgeFilExpNorm, col = CEcol, labels = NULL, pch = 20)
-legend("topright", legend = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10", "Unassigned", "NA"), fill =  c("darkorange", "cornflowerblue", "darkolivegreen3", "deeppink3", "darkorchid", "brown1", "darkgrey", "chartreuse",  "#F8766D", "#00BFC4", "black", "pink" ) )
+legend("topright", legend = c("CE1", "CE2", "CE3", "CE4", "CE5", "CE6", "CE7", "CE8", "CE9", "CE10", "Unassigned", "NA"), fill =  c("darkorange", "cornflowerblue", "darkolivegreen1", "deeppink3", "darkorchid", "darkslateblue", "darkgrey", "chartreuse4",  "darkgoldenrod4", "#00BFC4", "black", "pink" ) )
 
 
 ```
-**Looks like I could account for CE within the model? Some separation **
+Some separation of ecotypes but not correcting for this as it is confounded with gene expression (used to generate the CE classification) and the contrasts 
 
 ```{r}
 
@@ -304,30 +330,24 @@ plotMDS(dgeFilExpNorm, col = siteCol, labels = NULL, pch = 20)
 
 
 
-**Define the design matrix.**
+**Define design matrix**
 
 ```{r}
 
-# specify the model to be fitted
 modelMatrix <- model.matrix(~ 0 + group, data=dgeFilExpNorm) # specifies the design of the linear model
 
 ```
 
-**Voom transformation.** 
+**Voom transformation** 
 
 ```{r}
 
-# voom transformation
-voom <- voom(dgeFilExpNorm, modelMatrix, plot = TRUE) #voom transformation transforms counts to log2 CPM based on the normalisation factors calculated earlier. It also fits a linear model to the log2 CPM for each gene (row-wise), calculates the residuals, and then fits a smoothed curve to the square root of the residual standard deviation by average expression. The smoothed curve is used to obtain weights for each gene and sample, which are then passed into limma for DEA taking into account the variability of each gene.
-
-# look at diagnostic plots
-#plotMDS(dgeFilExpNorm, col = CEcol, labels = NULL, pch = 20)
-#legend("topright", legend = c("BRCA1/2 loss", "HRD high", "HRD low"), fill =  c("#F8766D", "#00BFC4", "#00BA38"))
+voom <- voom(dgeFilExpNorm, modelMatrix, plot = TRUE) #transforms counts to log2 CPM based on the normalisation factors calculated earlier & fits a linear model to the log2 CPM for each gene (row-wise), calculates the residuals, and fits a smoothed curve to the square root of the residual standard deviation by average expression. The smoothed curve is used to obtain weights for each gene and sample, which are then passed into limma for DE, taking into account the variability of each gene.
 
 ```
 
 
-**Fit linear model.**
+**Fit linear model**
 
 ```{r}
 # fitting a linear model using weighted least squares for each gene
@@ -335,7 +355,8 @@ fit <- lmFit(voom, modelMatrix) # now run DEA
 head(coef(fit)) #display the coefficients for the model terms defined in the model matrix. These coefficients will be used to perform hypothesis testing to determine significantly up/down regulated genes. 
 
 ```
-**Define contrast.**
+
+**Define contrast**
 
 ```{r}
 # comparison between groups (log-fold changes) are obtained as contrasts of these fitted linear models
@@ -344,28 +365,31 @@ contr <- makeContrasts( groupHRD_high - groupBRCA1_2_loss, groupHRD_low - groupB
  # groupHRD_low - groupBRCA1_2_loss,  # Coefficient 2
 contr
 contrastsfit <- contrasts.fit(fit, contrasts = contr) # fit the contrasts to the linear model fit and calculate the coefficients 
-fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for potnetial issues with heteroscedasticy (varying levels of dispersion) in the data. Helps to obtain more accurate p-values and effect size estimates.
+fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for potential issues with heteroscedasticy in the data. Helps to obtain more accurate p-values and effect size estimates.
 
 ```
-**Extract to contrasts.**
+
+**Extract to contrasts**
+
 ```{r}
 
-results_HRDhigh <- topTable(fittedContrasts, coef= "groupHRD_high - groupBRCA1_2_loss", sort.by = "P", n = Inf) # lists the top DE genes 
-head(results_HRDhigh, 20) # generate a table of top 20 DE genes (sorted by p value), n=Inf means retreive all DE genes (no limit on number)
-#write_csv(results_HRDhigh, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230905_topTableDEgenes_BRCA1_2_loss_vs_HRD_high.csv")
+results_HRDhigh <- topTable(fittedContrasts, coef= "groupHRD_high - groupBRCA1_2_loss", sort.by = "P", n = Inf) 
+head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value), n=Inf means retreive all DE genes (no limit on number)
+#write_csv(results_HRDhigh, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230922_topTableDE_BRCA12loss_vs_HRDhigh.csv")
 
 results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
 head(results_HRDlow, 20)
-#write_csv(results_HRDlow, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230905_topTableDEgenes_BRCA1_2_loss_vs_HRD_low.csv")
+#write_csv(results_HRDlow, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230922_topTableDE_BRCA12loss_vs_HRDlow.csv")
 ```
-**Statistical testing.**
-*The output from topTable() includes*
-*logFC: the log fold-change between cases and controls.*
-*t: the t-statistic used to assess differential expression.*
-*P.Value: the p-value for differential expression; this value is not adjusted for multiple testing.*
-*adj.P.Val: the p-value adjusted for multiple testing. Different adjustment methods are available, the default is Benjamini-Horchberg.*
 
-*Just looking at BRCA1/2 vs HRD low*
+**Statistical testing.**
+The output from topTable() includes:
+-logFC: the log fold-change between cases and controls
+-t: the t-statistic for DE
+-P.Value: for DE (not adjusted for multiple testing)
+-adj.P.Val: p-value adjusted for multiple testing. Different adjustment method = Benjamini-Horchberg
+
+**Just looking at BRCA1/2 vs HRD low**
 ```{r}
 
 # Total number of DE genes based on adjusted p value < 0.05
@@ -384,36 +408,35 @@ summary(dt)
 
 
 **Plots for DE contrast: BRCA1/2 loss vs HRD low**
-*you should be able to provide the gene names from fittedContrasts but I don't seem to have them, check why this is*
 ```{r}
 volcanoplot(
-  fittedContrasts,             # The fitted contrasts object
-  coef = "groupHRD_low - groupBRCA1_2_loss",                    # Specify the contrast (coefficient) you want to visualize
-  highlight = 10,               # The number of top genes to highlight (you can adjust this)
-  names = fittedContrasts$genes$SYMBOL,    # The gene symbols (replace 'genes$SYMBOL' with the actual gene symbol data)
-  main = "Volcano Plot"        # Title for the plot (replace with your desired title)
+  fittedContrasts,             
+  coef = "groupHRD_low - groupBRCA1_2_loss", # Specify which contrast to visualize
+  highlight = 10,               # The number of top genes to highlight 
+  names = fittedContrasts$genes$SYMBOL,    
+  main = "Volcano Plot"        # Plot title 
 )
 
 #x axis - upregulation (positive values) and downregulation (negative) of genes 
 #y-axis - statistical significance 
 #each gene = a dot
 
-limma::plotMA(fittedContrasts, coef = "groupHRD_low - groupBRCA1_2_loss", status = dt[ ,"groupHRD_low - groupBRCA1_2_loss"], hl.pch = 20, bg.col = "grey") #MA plot displays log-fold change against the average log expression for each gene 
+#MA plot displays log-fold change against the average log expression for each gene 
+limma::plotMA(fittedContrasts, coef = "groupHRD_low - groupBRCA1_2_loss", status = dt[ ,"groupHRD_low - groupBRCA1_2_loss"], hl.pch = 20, bg.col = "grey") 
 o <- order(fittedContrasts$p.value[,"groupHRD_low - groupBRCA1_2_loss"]) # orders the genes based on their p-value from DEA
 x <- fittedContrasts$Amean #extracts the average log-expression values (Amean) for all genes 
-y <- fittedContrasts$coefficients[,"groupHRD_low - groupBRCA1_2_loss"] #extracts the log fold change values (coefficients) for the contrast group 
+y <- fittedContrasts$coefficients[,"groupHRD_low - groupBRCA1_2_loss"] #extracts logFCfor the contrast group 
 G <- fittedContrasts$genes$SYMBOL #extracts the gene names for genes in the fittedContrasts objects 
-text(x[o[1:10]], y[o[1:10]],labels = G[o[1:10]], 
-     cex = 0.7,  # Adjust the label size (0.7 means 70% of the default size)
-     col = "black",  # Change label color to blue
-     srt = 45) # to show the top 6 DE gene symbols
+text(x[o[1:10]], y[o[1:10]],labels = G[o[1:10]], # to show the top 10 DE gene symbols
+     cex = 0.7,  # Adjust label size 
+     col = "black",  # Change label color 
+     srt = 45) 
 
 
 
 ```
 
-**Gene ontology analyiss with Goana.**
-*end up with 0 for ENTREZID*
+**Gene ontology analsis with Goana**
 
 ```{r}
 # subset DE genes to include those of great significance and large-ish logFC
@@ -434,7 +457,7 @@ gene_ont$adj.P.Val <- p.adjust(gene_ont$P.ENTREZID, method="BH")
 gene_ont <- gene_ont %>% 
   rownames_to_column(var = "goTerm")
 
-#write_csv(gene_ont, "TCGA_DGE_geneOntology_ELythgoe_20230906.csv")
+#write_csv(gene_ont, "Output/Data/TCGA_DGE_geneOntology_20230922.csv")
 
 ```
 
