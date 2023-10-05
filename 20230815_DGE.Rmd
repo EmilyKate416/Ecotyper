@@ -357,37 +357,74 @@ head(coef(fit)) #display the coefficients for the model terms defined in the mod
 ```
 
 **Define contrast**
-
+BRCA1/2 loss is the baseline for each contrast
 ```{r}
 # comparison between groups (log-fold changes) are obtained as contrasts of these fitted linear models
 contr <- makeContrasts( groupHRD_high - groupBRCA1_2_loss, groupHRD_low - groupBRCA1_2_loss, levels = modelMatrix) # define the comparisons you want to make
 #  groupHRD_high - groupBRCA1_2_loss, # Coefficient 1
  # groupHRD_low - groupBRCA1_2_loss,  # Coefficient 2
 contr
+#-1 = reference
+#0 = not included in comparison
+#1 = group to compare against reference
+
 contrastsfit <- contrasts.fit(fit, contrasts = contr) # fit the contrasts to the linear model fit and calculate the coefficients 
 fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for potential issues with heteroscedasticy in the data. Helps to obtain more accurate p-values and effect size estimates.
 
 ```
-
-**Extract to contrasts**
-
+**Sanity checks**
 ```{r}
+hist(results_HRDhigh$P.Value)
 
-results_HRDhigh <- topTable(fittedContrasts, coef= "groupHRD_high - groupBRCA1_2_loss", sort.by = "P", n = Inf) 
-head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value), n=Inf means retreive all DE genes (no limit on number)
-#write_csv(results_HRDhigh, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230922_topTableDE_BRCA12loss_vs_HRDhigh.csv")
-
-results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
-head(results_HRDlow, 20)
-#write_csv(results_HRDlow, "I:/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230922_topTableDE_BRCA12loss_vs_HRDlow.csv")
+hist(results_HRDlow$P.Value)
 ```
 
-**Statistical testing.**
+**Extract to contrasts and statistical testing.**
 The output from topTable() includes:
 -logFC: the log fold-change between cases and controls
 -t: the t-statistic for DE
 -P.Value: for DE (not adjusted for multiple testing)
--adj.P.Val: p-value adjusted for multiple testing. Different adjustment method = Benjamini-Horchberg
+-adj.P.Val: p-value adjusted for multiple testing. Default adjustment method = Benjamini-Horchberg
+```{r}
+
+results_HRDhigh <- topTable(fittedContrasts, coef= "groupHRD_high - groupBRCA1_2_loss", sort.by = "P", n = Inf) 
+head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value), n=Inf means retreive all DE genes (no limit on number)
+
+up_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
+  filter(adj.P.Val < 0.05, logFC >= 1.0) %>% 
+  write_csv("Output/Data/20230922_up_genes_BRCAloss_HRDhigh.csv")
+  
+down_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
+  filter(adj.P.Val < 0.05, logFC <= -1.0) %>% 
+  write_csv("Output/Data/20230922_down_genes_BRCAloss_HRDhigh.csv")
+
+results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
+head(results_HRDlow, 20)
+
+up_genes_BRCAloss_HRDlow <- results_HRDlow %>%
+  filter(adj.P.Val < 0.05, logFC >= 1.0) %>% 
+   write_csv("Output/Data/20230926_up_genes_BRCAloss_HRDlow.csv") 
+
+down_genes_BRCAloss_HRDlow <- results_HRDlow %>%
+  filter(adj.P.Val < 0.05, logFC <= -1.0) %>% 
+  write_csv("Output/Data/20230926_down_genes_BRCAloss_HRDlow.csv")
+
+
+
+  venn_list <- list(
+      up_in_HRD = as.character(up_genes_BRCAloss_HRDhigh$SYMBOL),
+      up_in_HRP = as.character(up_genes_BRCAloss_HRDlow$SYMBOL),
+      down_in_HRD = as.character(down_genes_BRCAloss_HRDhigh$SYMBOL),
+      down_in_HRP = as.character(down_genes_BRCAloss_HRDlow$SYMBOL))
+  
+ 
+vennDat <- ggvenn::ggvenn(venn_list, set_name_size = 3)   
+
+vennDat + labs(title = "In comparison to BRCA1/2 loss")
+
+```
+
+
 
 **Just looking at BRCA1/2 vs HRD low**
 ```{r}
@@ -409,6 +446,8 @@ summary(dt)
 
 **Plots for DE contrast: BRCA1/2 loss vs HRD low**
 ```{r}
+
+#to plot a measure of significance against fold change 
 volcanoplot(
   fittedContrasts,             
   coef = "groupHRD_low - groupBRCA1_2_loss", # Specify which contrast to visualize
@@ -427,7 +466,10 @@ o <- order(fittedContrasts$p.value[,"groupHRD_low - groupBRCA1_2_loss"]) # order
 x <- fittedContrasts$Amean #extracts the average log-expression values (Amean) for all genes 
 y <- fittedContrasts$coefficients[,"groupHRD_low - groupBRCA1_2_loss"] #extracts logFCfor the contrast group 
 G <- fittedContrasts$genes$SYMBOL #extracts the gene names for genes in the fittedContrasts objects 
-text(x[o[1:10]], y[o[1:10]],labels = G[o[1:10]], # to show the top 10 DE gene symbols
+
+x_offset <- 0.2  # Adjust the x-offset as needed
+y_offset <- 0.1  # Adjust the y-offset as needed
+text(x[o[1:10]] + x_offset, y[o[1:10]] + y_offset,labels = G[o[1:10]], # to show the top 10 DE gene symbols
      cex = 0.7,  # Adjust label size 
      col = "black",  # Change label color 
      srt = 45) 
@@ -436,7 +478,28 @@ text(x[o[1:10]], y[o[1:10]],labels = G[o[1:10]], # to show the top 10 DE gene sy
 
 ```
 
-**Gene ontology analsis with Goana**
+```{r}
+
+o <- order(fittedContrasts$p.value[, "groupHRD_low - groupBRCA1_2_loss"])
+x <- fittedContrasts$Amean
+y <- fittedContrasts$coefficients[, "groupHRD_low - groupBRCA1_2_loss"]
+G <- fittedContrasts$genes$SYMBOL
+
+# Create the MA plot using ggplot2 with your existing fittedContrasts object
+ggplot(data = fittedContrasts$genes, aes(x = x, y = y)) +
+  geom_point(aes(color = fittedContrasts$p.value[, "groupHRD_low - groupBRCA1_2_loss"] < 0.05), size = 1) +
+  geom_text(data = fittedContrasts$genes[o[1:10], ], aes(x = x[o[1:10]] + 0.2, y = y[o[1:10]] + 0.1, label = G[o[1:10]]), size = 3, color = "black", angle = 45) +
+  labs(
+    x = "Average Log-Expression",
+    y = "Log-Fold Change",
+    title = "MA Plot",
+    color = "FDR < 0.05"
+  ) +
+  theme_minimal()
+```
+
+
+**Gene ontology analysis with Goana**
 
 ```{r}
 # subset DE genes to include those of great significance and large-ish logFC
