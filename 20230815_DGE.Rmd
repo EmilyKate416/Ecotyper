@@ -12,23 +12,23 @@ knitr::opts_chunk$set(echo = TRUE)
 - based on DGE script from Ashley Weir 
 
 **Data required:**
-- **20230815_STARcounts_TCGAOV.tsv** produced in temp_GDC_download_serverversion.Rmd 
-- Meta data from TCGA download **20230815_clinical.csv**
+- **20230815_STARcounts_TCGAOV.tsv** produced in temp_GDC_download_serverversion.Rmd (original on jblab server2, put copies on I drive)
+- Meta data from TCGA download **20230815_clinical.csv** (original on jblab server2, put copies on I drive)
 - Location on jblab server002: /home/lythgo02/ecotyper/20230720_TCGA_2nd_year/GDCdata/ 
 - Contrast labels **20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv** produced in 20230725_TCGA_OV_stratification.Rmd 
 - Location on I-drive: ./Data/Processed/
 
 
 ```{r, message=FALSE, warning=FALSE}
-setwd("/research/jblab/data/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/")
+setwd("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year")
 
 library(dplyr)
-library(tidyverse)
+library(tidyverse) #will need to install dependencies via terminal first: sudo apt install libcurl4-openssl-dev libssl-dev libxml2-dev libfontconfig1-dev libharfbuzz-dev libfribidi-dev libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
 library(ggplot2)
 library(stringr)
-library(AnnotationDbi)
-library(org.Hs.eg.db)
-library(limma)
+library(AnnotationDbi) # install from CRAN
+library(org.Hs.eg.db) #install from CRAN
+library(limma) #install from CRAN
 library(edgeR)
 library(DESeq2)
 library(janitor)
@@ -39,11 +39,11 @@ library(statmod)
 
 ```{r, message=FALSE}
 
-rawCounts <- read_delim("Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_STARcounts_TCGAOV.tsv", 
+rawCounts <- read_delim("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/GDCdata/TCGA-OV/20230815_STARcounts_TCGAOV.tsv", 
     delim = "\t", escape_double = FALSE, 
     trim_ws = TRUE)
 
-meta <- read_csv("Y:/ecotyper/20230720_TCGA_2nd_year/GDCdata/20230815_clinical.csv") 
+meta <- read_csv("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/GDCdata/TCGA-OV/20230815_clinical.csv") 
 
 #need to check for the most recent version of the pan-cancer clinical data table (modified to contrast contrast labels in Rmd 20230725_TCGA_OV_stratification.Rmd on I drive
 pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv", 
@@ -52,7 +52,7 @@ pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCG
                         mutate(submitter_id = str_trunc(submitter_id, 12, "right", ellipsis = "")) # some samples have additional letters at the end (unsure if this is vial number), remove 
 
 #CE information I generated using TPM processed by Tatlow and Piccolo,. 2016
-ecotype_abundances <- read_delim("Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt ", delim = "\t") %>% 
+ecotype_abundances <- read_delim("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt ", delim = "\t") %>% 
   as.data.frame(transpose()) %>% 
   clean_names()
 
@@ -478,7 +478,7 @@ text(x[o[1:10]] + x_offset, y[o[1:10]] + y_offset,labels = G[o[1:10]], # to show
 
 ```
 
-```{r}
+```{r ggplot version}
 
 o <- order(fittedContrasts$p.value[, "groupHRD_low - groupBRCA1_2_loss"])
 x <- fittedContrasts$Amean
@@ -492,10 +492,60 @@ ggplot(data = fittedContrasts$genes, aes(x = x, y = y)) +
   labs(
     x = "Average Log-Expression",
     y = "Log-Fold Change",
-    title = "MA Plot",
+    title = "MA Plot: HR Proficient vs BRCA1/2 Loss",
     color = "FDR < 0.05"
   ) +
   theme_minimal()
+
+o2 <- order(fittedContrasts$p.value[, "groupHRD_high - groupBRCA1_2_loss"])
+x <- fittedContrasts$Amean
+y2 <- fittedContrasts$coefficients[, "groupHRD_high - groupBRCA1_2_loss"]
+G <- fittedContrasts$genes$SYMBOL
+
+ggplot(data = fittedContrasts$genes, aes(x = x, y = y2)) +
+  geom_point(aes(color = fittedContrasts$p.value[, "groupHRD_high - groupBRCA1_2_loss"] < 0.05), size = 1) +
+  geom_text(data = fittedContrasts$genes[o2[1:10], ], aes(x = x[o2[1:10]] + 0.2, y = y[o2[1:10]] + 0.1, label = G[o2[1:10]]), size = 3, color = "black", angle = 45) +
+  labs(
+    x = "Average Log-Expression",
+    y = "Log-Fold Change",
+    title = "MA Plot: Non-BRCA HRD vs BRCA1/2 Loss",
+    color = "FDR < 0.05"
+  ) 
+```
+
+```{r}
+library(pheatmap) 
+
+# Select the top genes based on FDR (assuming you have FDR values)
+topGenesHRDlow <- results_HRDlow %>% 
+  arrange(adj.P.Val) %>% #ascending order
+  head(300)  
+  
+logFC_matrix <- topGenesHRDlow %>% 
+  dplyr::select(SYMBOL, logFC)
+
+rownames(logFC_matrix) <- logFC_matrix[, "SYMBOL"]
+
+logFC_matrix <- logFC_matrix %>% 
+  dplyr::select(-"SYMBOL") %>% 
+  as.matrix()  
+
+pheatmap(logFC_matrix, 
+         cluster_rows = TRUE,  # Hierarchical clustering for rows
+         cluster_cols = FALSE, # No clustering for columns
+         color = colorRampPalette(c("blue", "white", "red"))(50), # Color scheme
+         main = "Heatmap of Top DE Genes", # Heatmap title
+         fontsize_row = 2,      # Row label font size
+         fontsize_col = 2,      # Column label font size
+         show_rownames = TRUE,  # Show row names
+         show_colnames = TRUE)  # Show column names
+
+
+
+
+
+
+
 ```
 
 
