@@ -33,6 +33,7 @@ library(edgeR)
 library(DESeq2)
 library(janitor)
 library(statmod)
+library(GO.db)
 ```
 
 **Load data**
@@ -372,12 +373,7 @@ contrastsfit <- contrasts.fit(fit, contrasts = contr) # fit the contrasts to the
 fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for potential issues with heteroscedasticy in the data. Helps to obtain more accurate p-values and effect size estimates.
 
 ```
-**Sanity checks**
-```{r}
-hist(results_HRDhigh$P.Value)
 
-hist(results_HRDlow$P.Value)
-```
 
 **Extract to contrasts and statistical testing.**
 The output from topTable() includes:
@@ -424,7 +420,12 @@ vennDat + labs(title = "In comparison to BRCA1/2 loss")
 
 ```
 
+**Sanity checks**
+```{r}
+hist(results_HRDhigh$P.Value)
 
+hist(results_HRDlow$P.Value)
+```
 
 **Just looking at BRCA1/2 vs HRD low**
 ```{r}
@@ -513,7 +514,7 @@ ggplot(data = fittedContrasts$genes, aes(x = x, y = y2)) +
   ) 
 ```
 
-```{r}
+```{r, include=FALSE, eval = FALSE}
 library(pheatmap) 
 
 # Select the top genes based on FDR (assuming you have FDR values)
@@ -532,7 +533,7 @@ logFC_matrix <- logFC_matrix %>%
 
 pheatmap(logFC_matrix, 
          cluster_rows = TRUE,  # Hierarchical clustering for rows
-         cluster_cols = FALSE, # No clustering for columns
+         cluster_cols = TRUE, # No clustering for columns
          color = colorRampPalette(c("blue", "white", "red"))(50), # Color scheme
          main = "Heatmap of Top DE Genes", # Heatmap title
          fontsize_row = 2,      # Row label font size
