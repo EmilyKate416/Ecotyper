@@ -52,7 +52,7 @@ pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCG
                         mutate(submitter_id = str_trunc(submitter_id, 12, "right", ellipsis = "")) # some samples have additional letters at the end (unsure if this is vial number), remove 
 
 #CE information I generated using TPM processed by Tatlow and Piccolo,. 2016
-ecotype_abundances <- read_delim("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt ", delim = "\t") %>% 
+ecotype_abundances <- read_delim("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt", delim = "\t") %>% 
   as.data.frame(transpose()) %>% 
   clean_names()
 
