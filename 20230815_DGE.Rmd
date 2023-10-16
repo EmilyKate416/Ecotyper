@@ -189,9 +189,9 @@ geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provi
                                        keys = as.character(ensembl$ensembl_id), 
                                        columns = colGene, keytype = "ENSEMBL") 
 
-#count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
-#duplicated_geneIdMap <- geneIdMap %>% 
-  #filter(duplicated(ENTREZID) &!is.na(ENTREZID)) #2812 duplicated ID
+count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
+duplicated_geneIdMap <- geneIdMap %>% 
+  dplyr::filter(duplicated(ENTREZID) &!is.na(ENTREZID)) #2812 duplicated ID
 
 geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID (retaining one copy of each duplicate)
 geneIdMap <- geneIdMap[complete.cases(geneIdMap), ] # one gene has missing entries, remove
@@ -206,27 +206,29 @@ geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl$ensembl_id, ] #filter to r
 
 ```
 **Alternate method of mapping**
+**Using other method as this returns fewer mapped genes**
 ```{r}
 # Load the AnnotationHub package
-library(AnnotationHub)
+#library(AnnotationHub)
 
 # Create an AnnotationHub object for Homo sapiens
-ah <- AnnotationHub()
+#ah <- AnnotationHub()
 
 # Create a list of Ensembl Gene IDs
-ensembl_ids <- rownames(rawCounts_final)
-ensembl_ids <- sub("\\..*", "", ensembl_ids)  # Remove version numbers
-
-# Define the columns you want to select
-colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL")
+#ensembl_ids <- rownames(rawCounts_final)
+#ensembl_ids <- sub("\\..*", "", ensembl_ids)  # Remove version numbers
 
 # Create a query to retrieve gene annotation data from AnnotationHub
-humanEnsDb <- query(ah, c("EnsDb", "Homo sapiens", "GRCh38"))[[1]]
-annotations <- genes(humanEnsDb, return.type = "data.frame")
+#humanEnsDb <- query(ah, c("EnsDb", "Homo sapiens", "GRCh38"))[[1]]
+#annotations <- genes(humanEnsDb, return.type = "data.frame")
 
-annot <- annotations %>%
-  dplyr::select(gene_id, gene_name, entrezid) %>%
-  dplyr::filter(gene_id %in% rownames(ensembl_ids))
+#annot <- annotations %>%
+  #dplyr::select(gene_id, gene_name, entrezid) %>%
+  #dplyr::filter(gene_id %in% ensembl_ids)
+
+#length(unique(annot$gene_id)) #23767
+
+#sum(is.na(annot$entrezid)) # 11240 don't map to ID
 ```
 
 
@@ -409,22 +411,22 @@ results_HRDhigh <- topTable(fittedContrasts, coef= "groupHRD_high - groupBRCA1_2
 head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value), n=Inf means retreive all DE genes (no limit on number)
 
 up_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
-  filter(adj.P.Val < 0.05, logFC >= 1.0) %>% 
+  dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) #%>% 
   write_csv("Output/Data/20230922_up_genes_BRCAloss_HRDhigh.csv")
   
 down_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
-  filter(adj.P.Val < 0.05, logFC <= -1.0) %>% 
+  dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) #%>% 
   write_csv("Output/Data/20230922_down_genes_BRCAloss_HRDhigh.csv")
 
 results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
 head(results_HRDlow, 20)
 
 up_genes_BRCAloss_HRDlow <- results_HRDlow %>%
-  filter(adj.P.Val < 0.05, logFC >= 1.0) %>% 
+  dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) #%>% 
    write_csv("Output/Data/20230926_up_genes_BRCAloss_HRDlow.csv") 
 
 down_genes_BRCAloss_HRDlow <- results_HRDlow %>%
-  filter(adj.P.Val < 0.05, logFC <= -1.0) %>% 
+  dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) #%>% 
   write_csv("Output/Data/20230926_down_genes_BRCAloss_HRDlow.csv")
 
 
@@ -569,6 +571,11 @@ pheatmap(logFC_matrix,
 
 
 
+```
+```{r}
+library(clusterProfiler)
+
+search_kegg_organism('human', by='common_name') #kegg code = hsa
 ```
 
 
