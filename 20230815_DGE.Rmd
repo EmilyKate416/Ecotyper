@@ -205,7 +205,29 @@ ensembl <- data.frame(ensembl_id = rownames(rawCounts_final)) %>%
 geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl$ensembl_id, ] #filter to remove rows no longer present in rawCounts_final
 
 ```
+**Alternate method of mapping**
+```{r}
+# Load the AnnotationHub package
+library(AnnotationHub)
 
+# Create an AnnotationHub object for Homo sapiens
+ah <- AnnotationHub()
+
+# Create a list of Ensembl Gene IDs
+ensembl_ids <- rownames(rawCounts_final)
+ensembl_ids <- sub("\\..*", "", ensembl_ids)  # Remove version numbers
+
+# Define the columns you want to select
+colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL")
+
+# Create a query to retrieve gene annotation data from AnnotationHub
+humanEnsDb <- query(ah, c("EnsDb", "Homo sapiens", "GRCh38"))[[1]]
+annotations <- genes(humanEnsDb, return.type = "data.frame")
+
+annot <- annotations %>%
+  dplyr::select(gene_id, gene_name, entrezid) %>%
+  dplyr::filter(gene_id %in% rownames(ensembl_ids))
+```
 
 
 ```{r, Create rawCounts_final collapsed into median STAR count, include=FALSE, eval=FALSE}
