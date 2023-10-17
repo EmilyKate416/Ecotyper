@@ -412,25 +412,34 @@ head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value), n=Inf m
 
 up_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
   dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) #%>% 
-  write_csv("Output/Data/20230922_up_genes_BRCAloss_HRDhigh.csv")
+  #write_csv("Output/Data/20230922_up_genes_BRCAloss_HRDhigh.csv")
   
 down_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
   dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) #%>% 
-  write_csv("Output/Data/20230922_down_genes_BRCAloss_HRDhigh.csv")
+ # write_csv("Output/Data/20230922_down_genes_BRCAloss_HRDhigh.csv")
+  
+allDEgenes_BRCAloss_HRDhigh <- results_HRDhigh %>%
+  dplyr::filter(adj.P.Val < 0.05, abs(logFC) >= 1.0) #%>% 
+  #write_csv("Output/Data/20231017_DEgenes_BRCAloss_HRDhigh.csv")
 
 results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
 head(results_HRDlow, 20)
 
 up_genes_BRCAloss_HRDlow <- results_HRDlow %>%
   dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) #%>% 
-   write_csv("Output/Data/20230926_up_genes_BRCAloss_HRDlow.csv") 
+   #write_csv("Output/Data/20230926_up_genes_BRCAloss_HRDlow.csv") 
 
 down_genes_BRCAloss_HRDlow <- results_HRDlow %>%
   dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) #%>% 
-  write_csv("Output/Data/20230926_down_genes_BRCAloss_HRDlow.csv")
+  #write_csv("Output/Data/20230926_down_genes_BRCAloss_HRDlow.csv")
+  
+allDEgenes_BRCAloss_HRDlow <- results_HRDlow %>%
+  dplyr::filter(adj.P.Val < 0.05, abs(logFC) >= 1.0) #%>% 
+ # write_csv("Output/Data/20231017_DEgenes_BRCAloss_HRDlow.csv")
+```
 
-
-
+**Venn Diagram**
+```{r}
   venn_list <- list(
       up_in_HRD = as.character(up_genes_BRCAloss_HRDhigh$SYMBOL),
       up_in_HRP = as.character(up_genes_BRCAloss_HRDlow$SYMBOL),
@@ -572,11 +581,6 @@ pheatmap(logFC_matrix,
 
 
 ```
-```{r}
-library(clusterProfiler)
-
-search_kegg_organism('human', by='common_name') #kegg code = hsa
-```
 
 
 **Gene ontology analysis with Goana**
@@ -603,4 +607,67 @@ gene_ont <- gene_ont %>%
 #write_csv(gene_ont, "Output/Data/TCGA_DGE_geneOntology_20230922.csv")
 
 ```
+
+**Clusterprofiler (Yu et al. 2012)**
+**Supports direct online access of the current KEGG database (KEGG: Kyoto Encyclopedia of Genes and Genomes), rather than relying on R annotation packages**
+```{r, KEGG enrichment analysis}
+library(clusterProfiler)
+
+search_kegg_organism('human', by='common_name') #kegg code = hsa
+
+sigGenes_HRDhigh <- allDEgenes_BRCAloss_HRDhigh %>% 
+   pull(ENTREZID) %>% 
+  as.numeric()
+
+sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>% 
+   pull(ENTREZID) %>% 
+  as.numeric()
+
+ keggResHigh <- enrichKEGG(gene= sigGenes_HRDhigh, organism = 'hsa')
+ 
+ keggReslow <- enrichKEGG(gene= sigGenes_HRDlow, organism = 'hsa')
+ 
+ as_tibble(keggReslow)
+ browseKEGG(keggRes, 'hsa04657') # to visualise one of the hits in browser
+ 
+``` 
+
+```{r}
+setwd("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Plots")
+
+
+library(pathview)
+
+logFC_HRDlow <- results_HRDlow%>% dplyr::select(ENTREZID, logFC) 
+rownames(logFC_HRDlow) <- logFC_HRDlow$ENTREZID
+
+
+logFC_HRDlow <- logFC_HRDlow %>% dplyr::select(logFC) 
+
+pathview(gene.data = logFC_HRDlow, 
+         pathway.id = "hsa04657", 
+         species = "hsa", 
+         kegg.native = FALSE,  # Use the native KEGG colors for compounds
+         multi.state = TRUE,
+         out.suffix = "BRCAvsHRDlow_IL17",
+         keys.align = "y",
+         limit = 3, # specify range of colour scale 
+         bins = 15,
+        low=list(gene="steelblue"),
+        high=list(gene="gold"))
+
+pathview(gene.data = logFC_HRDlow, 
+         pathway.id = "hsa04080", 
+         species = "hsa", 
+         kegg.native = FALSE,  # Use the native KEGG colors for compounds
+         multi.state = TRUE,
+         out.suffix = "BRCAvsHRDlow",
+         keys.align = "y",
+         #limit = 3, # specify range of colour scale 
+         bins = 15,
+        low=list(gene="steelblue"),
+        high=list(gene="gold"),
+        limit = list(gene=3, cpd=1))
+```
+
 
