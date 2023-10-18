@@ -7,6 +7,19 @@ date: "2023-08-15"
 
 ```{r, setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+setwd("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year")
+
+library(ggplot2)
+library(stringr)
+library(AnnotationDbi) # install from CRAN
+library(org.Hs.eg.db) #install from CRAN
+library(limma) #install from CRAN
+library(edgeR)
+library(DESeq2)
+library(janitor)
+library(statmod)
+library(GO.db)
+library(tidyverse) #will need to install dependencies via terminal first: sudo apt install libcurl4-openssl-dev libssl-dev libxml2-dev libfontconfig1-dev libharfbuzz-dev libfribidi-dev libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
 ```
 
 - based on DGE script from Ashley Weir 
@@ -18,49 +31,28 @@ knitr::opts_chunk$set(echo = TRUE)
 - Contrast labels **20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv** produced in 20230725_TCGA_OV_stratification.Rmd 
 - Location on I-drive: ./Data/Processed/
 
-
-```{r, message=FALSE, warning=FALSE}
-setwd("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year")
-
-library(dplyr)
-library(tidyverse) #will need to install dependencies via terminal first: sudo apt install libcurl4-openssl-dev libssl-dev libxml2-dev libfontconfig1-dev libharfbuzz-dev libfribidi-dev libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
-library(ggplot2)
-library(stringr)
-library(AnnotationDbi) # install from CRAN
-library(org.Hs.eg.db) #install from CRAN
-library(limma) #install from CRAN
-library(edgeR)
-library(DESeq2)
-library(janitor)
-library(statmod)
-library(GO.db)
-```
-
 **Load data**
 
 ```{r, message=FALSE}
 
-rawCounts <- read_delim("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/GDCdata/TCGA-OV/20230815_STARcounts_TCGAOV.tsv", 
-    delim = "\t", escape_double = FALSE, 
-    trim_ws = TRUE)
+rawCounts <- read_tsv("./Data/GDCdata/TCGA-OV/20230815_STARcounts_TCGAOV.tsv")
 
-meta <- read_csv("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Data/GDCdata/TCGA-OV/20230815_clinical.csv") 
+meta <- read_csv("./Data/GDCdata/TCGA-OV/20230815_clinical.csv") 
 
 #need to check for the most recent version of the pan-cancer clinical data table (modified to contrast contrast labels in Rmd 20230725_TCGA_OV_stratification.Rmd on I drive
-pancan_contrasts <-  read_delim("Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv", 
-                        delim = "\t", escape_double = FALSE, trim_ws = TRUE) %>% 
-                        dplyr::rename(submitter_id = name) %>%
+pancan_contrasts <-  read_tsv("./Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv") %>% 
+                        rename(submitter_id = name) %>%
                         mutate(submitter_id = str_trunc(submitter_id, 12, "right", ellipsis = "")) # some samples have additional letters at the end (unsure if this is vial number), remove 
 
 #CE information I generated using TPM processed by Tatlow and Piccolo,. 2016
-ecotype_abundances <- read_delim("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt", delim = "\t") %>% 
+ecotype_abundances <- read_tsv("./Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt") %>% 
   as.data.frame(transpose()) %>% 
   clean_names()
 
-#CE information produced by Luca etal., 2021, only has info for 266 samples 
-#ecotype_abundances <- read_delim("Data/Processed/20230920_Luca_CEdataOV.tsv", delim = "\t") %>% 
-     #dplyr::rename(submitter_id = aliquot_barcode)  %>% 
-     #dplyr::select(-cg_hub_analysis_id, -aliquot_id, -disease)
+#CE information produced by Luca et al., 2021, only has info for 266 samples 
+#ecotype_abundances <- read_tsv("Data/Processed/20230920_Luca_CEdataOV.tsv") %>% 
+     #rename(submitter_id = aliquot_barcode)  %>% 
+     #select(-cg_hub_analysis_id, -aliquot_id, -disease)
 ```
 
 **Wrangle data**
@@ -68,21 +60,23 @@ Filter to include only primary samples. Some individuals have multiple sequencin
 
 ```{r wrangle data,warning=FALSE, message=FALSE}
 
+#loaded tidyverse last but select is still being masked
 rawCounts <- rawCounts %>% 
-  column_to_rownames(var = "gene_id") #430 cases with RNAseq counts from GDC
-rawCounts <- rawCounts %>% 
-  dplyr::select(-matches("02A|TCGA-23-1023-01R")) # remove any secondary samples and TCGA-23-1023-01R (have TCGA-23-1023-01A in addition which I have kept)
+  column_to_rownames("gene_id")  %>% 
+  select(-matches("02A|TCGA-23-1023-01R")) # remove any secondary samples and TCGA-23-1023-01R (have TCGA-23-1023-01A in addition which I have kept)
 
 #the gene names are already present within the rawCounts data - use the annotation package instead as this is more reliable for cross-matching
 
 primary_samples <- as.data.frame(colnames(rawCounts)) %>% 
    str_trunc(16, "right", ellipsis = "") %>% 
   clean_names() %>% 
-  dplyr::rename(submitter_id = colnames_raw_counts) %>% 
+  rename(submitter_id = colnames_raw_counts) %>% 
   str_trunc(12, "right", ellipsis = "") 
 ```
 
 ```{r, eval=FALSE, include = FALSE}
+#already saved the output
+
 #filtered_pancan <- left_join(primary_samples, pancan_contrasts) 
 
 # pull out cases not present in the pancancer table
@@ -98,27 +92,25 @@ primary_samples <- as.data.frame(colnames(rawCounts)) %>%
 cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv")
 
 pancan_contrasts_shortened <- pancan_contrasts %>% 
-  dplyr::select("submitter_id", "contrast_group") #only need the contrast info for now
+ select("submitter_id", "contrast_group") #only need the contrast info for now
  
 meta_plus_contrast <- cases_missing_labels %>% 
-  dplyr::select("submitter_id", "contrast_group") %>% 
+ select("submitter_id", "contrast_group") %>% 
   full_join(meta)
 
 # add in the contrast group info from cases_missing_labels into meta_plus_contrast group
 meta_plus_contrast <- meta_plus_contrast %>%  
   left_join(pancan_contrasts_shortened, by = ("submitter_id")) %>%  
-  mutate(contrast_group = if_else(is.na(contrast_group.y), contrast_group.x, contrast_group.y)) %>% 
-  dplyr::select(-contrast_group.x, -contrast_group.y) 
+  mutate(contrast_group = if_else(is.na(contrast_group.y), 
+                                  contrast_group.x, 
+                                  contrast_group.y)) %>% 
+  select(-contrast_group.x, 
+         -contrast_group.y) 
 ```
 
-```{r, notes to self, include=FALSE, echo=FALSE}
-#mutate line: the left_join merges the two tables by ID but keeps both contrast columns (renamed as contrast_group.y and contrast_group.x). The mutate creates a new column contrast_group, checks for NA in the contrast_group.y column and enters the value of the contrast_group.x column in the new contrast_group column if it is NA, otherwise it enters the value in the conrast_group.y column. 
-
-#note if using if_else() from dplyr, use | and & as comparison operators, but if using if and else from base r, use || and && as comparison operators
-```
 
 ```{r, wrangle ecotype data - Luca CE output, include=FALSE, eval=FALSE}
-
+#Using results from own EcoTyper output
 # <- ecotype_abundances %>% 
   #mutate(submitter_id_trunc = str_trunc(submitter_id, 12, "right", ellipsis = ""))
   
@@ -140,14 +132,17 @@ ecotype_abundances <- ecotype_abundances %>%
         submitter_id_trunc = str_trunc(id, 12, "right", ellipsis = ""))
   
 duplicate_rows <- ecotype_abundances %>%
-  filter(duplicated(submitter_id_trunc) | duplicated(submitter_id_trunc, fromLast = TRUE)) ##The first call to duplicated marks the first occurrence of each duplicate, and the second call to duplicated with the fromLast = TRUE argument marks the last occurrence of each duplicate.
+  filter(duplicated(submitter_id_trunc) | 
+           duplicated(submitter_id_trunc, fromLast = TRUE)) ##The first call to duplicated marks the first occurrence of each duplicate, and the second call to duplicated with the fromLast = TRUE argument marks the last occurrence of each duplicate.
 
 ecotype_abundances <- ecotype_abundances %>%
- dplyr::filter(!str_detect(id, "02A|TCGA-23-1023-01R-01R-1564-13-MEDIAN")) %>%  # discarding secondary and recurrance samples
-  dplyr::select(-id) %>% 
-  dplyr::rename(submitter_id = submitter_id_trunc)
+ filter(!str_detect(id, "02A|TCGA-23-1023-01R-01R-1564-13-MEDIAN")) %>%  # discarding secondary and recurrance samples
+  select(-id) %>% 
+  rename(submitter_id = submitter_id_trunc)
 
-meta_plus_contrast <- full_join( meta_plus_contrast, ecotype_abundances, by="submitter_id")
+meta_plus_contrast <- full_join( meta_plus_contrast, 
+                                 ecotype_abundances, 
+                                 by="submitter_id")
 
 
 ```
@@ -155,10 +150,8 @@ meta_plus_contrast <- full_join( meta_plus_contrast, ecotype_abundances, by="sub
 
 **Matching primary samples in rawcounts to samples in meta data**
 ```{r}
-meta_rawCounts_matched <- meta_plus_contrast[meta_plus_contrast$submitter_id %in% primary_samples$submitter_id,]
-
 merged_data <- primary_samples %>%
-  left_join(meta_rawCounts_matched, by = c("submitter_id" = "submitter_id"))
+  left_join(meta_plus_contrast, by = c("submitter_id" = "submitter_id"))
 
 
 meta_rawCounts_matched <- merged_data %>%
@@ -170,7 +163,7 @@ missing_contrast <- meta_rawCounts_matched[is.na(meta_rawCounts_matched$contrast
 
 rawCounts_final <- rawCounts[,!colnames(rawCounts) %in% missing_contrast$submitter_id] 
  rawCounts_final <- cbind(rawCounts$gene_name, rawCounts_final) %>% 
- dplyr::rename(gene_name = "rawCounts$gene_name")
+ rename(gene_name = "rawCounts$gene_name")
 
 meta_rawCounts_matched <- meta_rawCounts_matched[!is.na(meta_rawCounts_matched$contrast_group),]
 ```
@@ -189,9 +182,9 @@ geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, #the org.Hs.eg.db package provi
                                        keys = as.character(ensembl$ensembl_id), 
                                        columns = colGene, keytype = "ENSEMBL") 
 
-count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
+#count(is.na(geneIdMap$ENTREZID)) # 24622 don't match to an ID
 duplicated_geneIdMap <- geneIdMap %>% 
-  dplyr::filter(duplicated(ENTREZID) &!is.na(ENTREZID)) #2812 duplicated ID
+  filter(duplicated(ENTREZID) &!is.na(ENTREZID)) #2812 duplicated ID
 
 geneIdMap <- geneIdMap[!duplicated(geneIdMap$ENTREZID), ]#remove duplicated rows from the geneIdMapExAn data frame based on the ENTREZID (retaining one copy of each duplicate)
 geneIdMap <- geneIdMap[complete.cases(geneIdMap), ] # one gene has missing entries, remove
@@ -209,42 +202,26 @@ geneIdMap <- geneIdMap[geneIdMap$ENSEMBL %in% ensembl$ensembl_id, ] #filter to r
 **Using other method as this returns fewer mapped genes**
 ```{r}
 # Load the AnnotationHub package
-#library(AnnotationHub)
+library(AnnotationHub)
 
 # Create an AnnotationHub object for Homo sapiens
-#ah <- AnnotationHub()
-
+ah <- AnnotationHub()
+ah[1]
 # Create a list of Ensembl Gene IDs
-#ensembl_ids <- rownames(rawCounts_final)
-#ensembl_ids <- sub("\\..*", "", ensembl_ids)  # Remove version numbers
+ensembl_ids <- rownames(rawCounts_final)
+ensembl_ids <- sub("\\..*", "", ensembl_ids)  # Remove version numbers
 
 # Create a query to retrieve gene annotation data from AnnotationHub
-#humanEnsDb <- query(ah, c("EnsDb", "Homo sapiens", "GRCh38"))[[1]]
-#annotations <- genes(humanEnsDb, return.type = "data.frame")
+humanEnsDb <- query(ah, c("EnsDb", "Homo sapiens", "109"))[[1]]
+    annotations <- genes(humanEnsDb, return.type = "data.frame")
 
-#annot <- annotations %>%
-  #dplyr::select(gene_id, gene_name, entrezid) %>%
-  #dplyr::filter(gene_id %in% ensembl_ids)
+annot <- annotations %>%
+  select(gene_id, gene_name, entrezid) %>%
+  filter(gene_id %in% ensembl_ids)
 
-#length(unique(annot$gene_id)) #23767
+length(unique(annot$gene_id)) 
 
-#sum(is.na(annot$entrezid)) # 11240 don't map to ID
-```
-
-
-```{r, Create rawCounts_final collapsed into median STAR count, include=FALSE, eval=FALSE}
-#Not required as EcoTyper won't take STARcounts, only TMK/FPKM
-
-#EcoTyper_counts <- rawCounts_final %>%
- # rownames_to_column("gene_id") %>%  
- # separate(gene_id, into = c("ENSEMBL", "version_number"), sep = "\\." ) %>% 
- # group_by(ENSEMBL) %>% 
- # summarize(across(where(is.numeric), median)) #collapse transcript variants into median value for that ENSEMBL ID as separating version numbers from ENSEMBL creates duplicates 
-
-#EcoTyper_final <- EcoTyper_counts %>% 
-  #inner_join(geneIdMap %>% dplyr::select(ENSEMBL, SYMBOL), by = "ENSEMBL")# %>% 
- #save <- EcoTyper_final %>%  dplyr::select(-ENSEMBL) %>% write_delim("./Data/Processed/20230908_EcoTyperCountsMappedMedian.tsv", delim="\t")
-
+sum(is.na(annot$entrezid)) 
 ```
 
 
@@ -546,7 +523,7 @@ ggplot(data = fittedContrasts$genes, aes(x = x, y = y2)) +
     color = "FDR < 0.05"
   ) 
 ```
-
+**need to fix heatmap**
 ```{r, include=FALSE, eval = FALSE}
 library(pheatmap) 
 
@@ -628,12 +605,11 @@ sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>%
  keggReslow <- enrichKEGG(gene= sigGenes_HRDlow, organism = 'hsa')
  
  as_tibble(keggReslow)
- browseKEGG(keggRes, 'hsa04657') # to visualise one of the hits in browser
+ browseKEGG(keggResHigh, 'hsa04657') # to visualise one of the hits in browser
  
 ``` 
-
+Wont map IDs using correct EntrezIDs eg BRCA1 hsa672
 ```{r}
-setwd("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year/Output/Plots")
 
 
 library(pathview)
@@ -645,21 +621,21 @@ rownames(logFC_HRDlow) <- logFC_HRDlow$ENTREZID
 logFC_HRDlow <- logFC_HRDlow %>% dplyr::select(logFC) 
 
 pathview(gene.data = logFC_HRDlow, 
-         pathway.id = "hsa04657", 
+         pathway.id = "04657", 
          species = "hsa", 
-         kegg.native = FALSE,  # Use the native KEGG colors for compounds
+         kegg.native = TRUE, # switch to false for PDF 
          multi.state = TRUE,
          out.suffix = "BRCAvsHRDlow_IL17",
          keys.align = "y",
-         limit = 3, # specify range of colour scale 
          bins = 15,
         low=list(gene="steelblue"),
-        high=list(gene="gold"))
+        high=list(gene="gold"),
+        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
 
 pathview(gene.data = logFC_HRDlow, 
          pathway.id = "hsa04080", 
          species = "hsa", 
-         kegg.native = FALSE,  # Use the native KEGG colors for compounds
+         kegg.native = TRUE,   # switch to false for PDF
          multi.state = TRUE,
          out.suffix = "BRCAvsHRDlow",
          keys.align = "y",
@@ -667,7 +643,81 @@ pathview(gene.data = logFC_HRDlow,
          bins = 15,
         low=list(gene="steelblue"),
         high=list(gene="gold"),
-        limit = list(gene=3, cpd=1))
-```
+        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
 
+pathview(gene.data = logFC_HRDlow, 
+         pathway.id = "hsa672", 
+         species = "hsa", 
+         kegg.native = TRUE,   # switch to false for PDF
+         multi.state = TRUE,
+         out.suffix = "BRCAvsHRDlowBRCA1",
+         keys.align = "y",
+         #limit = 3, # specify range of colour scale 
+         bins = 15,
+        low=list(gene="steelblue"),
+        high=list(gene="gold"),
+        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
+```
+**clusterProfiler can also perform over-representation analysis on GO terms with enrichGO**
+
+can't generate a plot for the BRCA1 vs HRDhigh
+```{r}
+library(org.Hs.eg.db)
+
+sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>% 
+   pull(ENSEMBL) 
+universe <- results_HRDlow$ENSEMBL # create a background (universe) gene list = all genes in analysis 
+
+ego <- enrichGO(gene          = sigGenes_HRDlow, # defined earlier 
+                universe      = universe,
+                OrgDb         = org.Hs.eg.db,
+                keyType       = "ENSEMBL",
+                ont           = "ALL", # One of "BP" (biological processes), "MF", and "CC" subontologies, or "ALL" for all three.
+                pvalueCutoff  = 0.01,
+                readable      = TRUE)
+
+dotplotHRDlow <- dotplot(ego, font.size = 9)
+print(dotplotHRDlow)
+
+sigGenes_HRDhigh <- allDEgenes_BRCAloss_HRDhigh %>% 
+   pull(ENSEMBL) 
+universe <- results_HRDhigh$ENSEMBL # create a background (universe) gene list = all genes in analysis 
+
+ego <- enrichGO(gene          = sigGenes_HRDhigh, # defined earlier 
+                universe      = universe,
+                OrgDb         = org.Hs.eg.db,
+                keyType       = "ENSEMBL",
+                ont           = "ALL",
+                pvalueCutoff  = 0.01,
+                readable      = TRUE)
+
+dotplotHRDhigh <- dotplot(ego, font.size = 9) 
+print(dotplotHRDhigh)
+
+```
+**GSEA**
+```{r}
+library(msigdbr)
+
+# Load pathway details
+term2gene <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  select(gs_name, entrez_gene)
+
+term2name<- msigdbr(species = "Homo sapiens", category = "H") %>%
+  select(gs_name, gs_description) %>%
+  distinct()
+
+# rank genes (by combining the sign of the fold change and the pvalue)
+rankedGenesHRDlow <- results_HRDlow %>%
+  mutate(rank = -log10(P.Value) * sign(logFC)) %>%
+  arrange(desc(rank)) %>%
+  pull(rank, ENTREZID)
+
+gseaRes.HRDlow <- GSEA(rankedGenesHRDlow,
+                TERM2GENE = term2gene,
+                TERM2NAME = term2name,
+                pvalueCutoff = 1.00, 
+                minGSSize = 15,
+                maxGSSize = 500)
+```
 
