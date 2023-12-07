@@ -7,7 +7,7 @@ date: "2023-08-15"
 
 ```{r, setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-setwd("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year")
+setwd("/mnt/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year") # switch file path name to new mount location?
 
 library(ggplot2)
 library(stringr)
@@ -39,7 +39,7 @@ rawCounts <- read_tsv("./Data/GDCdata/TCGA-OV/20230815_STARcounts_TCGAOV.tsv")
 
 meta <- read_csv("./Data/GDCdata/TCGA-OV/20230815_clinical.csv") 
 
-#need to check for the most recent version of the pan-cancer clinical data table (modified to contrast contrast labels in Rmd 20230725_TCGA_OV_stratification.Rmd on I drive
+#need to check for the most recent version of the pan-cancer clinical data table (modified to contain contrast labels in Rmd 20230725_TCGA_OV_stratification.Rmd on I drive
 pancan_contrasts <-  read_tsv("./Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv") %>% 
                         rename(submitter_id = name) %>%
                         mutate(submitter_id = str_trunc(submitter_id, 12, "right", ellipsis = "")) # some samples have additional letters at the end (unsure if this is vial number), remove 
@@ -86,7 +86,13 @@ primary_samples <- as.data.frame(colnames(rawCounts)) %>%
  # write_delim("./Data/Processed/20230815_rnaseq_cases_missing_from_pancan.tsv", delim = "\t")
 
 ```
-
+##Adding in contrast labels
+Contrast labels taken from Drews *et al*., 2022 for the majority of the cohort
+BUT there are TCGA OV cases with RNAseq data that don't match a label in the 
+pancancer dataset and some cases were missing from the supplementary files
+I used info on BRCA/HRD status from Wang *et al*., 2017 DOI [10.1038/ng.3849] 
+and Takaya *et al.,*., 2020 DOI:[10.1038/s41598-020-59671-3] 
+(As used in Drews *et al*., 2020) see 20230725_TCGA_OV_stratification.Rmd
 ```{r, message=FALSE}
 #reload the cases_missing_labels list annotated using Wang 2017 and Takaya 2020 annotation
 cases_missing_labels <- read_csv("Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv")
@@ -216,8 +222,8 @@ humanEnsDb <- query(ah, c("EnsDb", "Homo sapiens", "109"))[[1]]
     annotations <- genes(humanEnsDb, return.type = "data.frame")
 
 annot <- annotations %>%
-  select(gene_id, gene_name, entrezid) %>%
-  filter(gene_id %in% ensembl_ids)
+  dplyr::select(gene_id, gene_name, entrezid) %>%
+  dplyr::filter(gene_id %in% ensembl_ids)
 
 length(unique(annot$gene_id)) 
 

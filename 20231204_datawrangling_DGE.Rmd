@@ -1,0 +1,169 @@
+---
+title: "20231204_datawrangling_DGE"
+output: html_document
+date: "2023-12-04"
+---
+Will need to install dependencies via terminal first: sudo apt install
+libcurl4-openssl-dev libssl-dev libxml2-dev libfontconfig1-dev libharfbuzz-dev
+libfribidi-dev libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
+
+
+```{r, setup, include=FALSE}
+library(AnnotationHub)
+library(ensembldb)
+library(AnnotationDbi) # install from CRAN
+library(clusterProfiler)
+library(msigdbr)
+library(pathview)
+library(pheatmap) 
+library(org.Hs.eg.db) #install from CRAN
+library(limma) #install from CRAN
+library(edgeR)
+library(DESeq2)
+library(janitor)
+library(statmod)
+library(GO.db)
+library(tidyverse) 
+
+
+projDir = "/run/user/1804238067/gvfs/sftp:host=clust1-headnode,user=lythgo02/mnt/nas1-data/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year"
+knitr::opts_knit$set(root.dir = projDir) #sets location for output files to projDir 
+knitr::opts_chunk$set(echo = TRUE) #setting default option for all code chunks 
+```
+
+### **Data required**
+
+- **20230815_STARcounts_TCGAOV.tsv** produced in
+  temp_GDC_download_serverversion.Rmd (original on jblab server2, put copies on
+  I drive)   
+- Meta data from TCGA download **20230815_clinical.csv** (original on jblab
+  server2, put copies on I drive)   
+- Location on jblab server002:
+  /home/lythgo02/ecotyper/20230720_TCGA_2nd_year/GDCdata/   
+- Contrast labels **20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv**
+  produced in 20230725_TCGA_OV_stratification.Rmd 
+- Additional contrast labels **20230815_rnaseq_cases_missing_from_pancan.csv**
+- Location on I-drive: ./Data/Processed/
+- Carcinoma ecotype results generated when I processed TPM from Tatlow and 
+  Piccolo **Ecotype_Assignment.txt**
+
+### **Load data**
+
+```{r, include=FALSE}
+rawCounts <- read_tsv("./Data/GDCdata/TCGA-OV/20230815_STARcounts_TCGAOV.tsv")
+# Remove version number from the Ensembl ID now as not needed
+rawCounts$gene_id <- str_remove(rawCounts$gene_id, "\\.[0-9]+$") 
+#remove anything matching . followed by 1-9 numbers at the end of the string($) 
+#in gene_id column
+
+meta <- read_csv("./Data/GDCdata/TCGA-OV/20230815_clinical.csv") 
+
+#need to check for the most recent version of the pan-cancer clinical data table 
+#(modified to contain contrast labels in 20230725_TCGA_OV_stratification.Rmd on Idrive
+
+pancanFile <- "./Data/Processed/20230815_ST_58_Clinical_data_TCGA-OV_contrast_groups.tsv"
+pancan_contrasts <-  read_tsv(pancanFile) %>% 
+    rename(submitter_id = name) %>%
+    mutate(across(submitter_id, ~str_remove(.x, "-[a-c]$"))) 
+#in the column specified (.x i.e. submitter_id), remove anything with a 
+#hyphen then a letter in the range 'a' to 'c' at the end of the string
+#(some samples have additional letters at the end, may be vial number)
+
+#CE information I generated using TPM processed by Tatlow and Piccolo,. 2016
+ecotype_abundances <- read_tsv("./Output/Data/20230921_EcoTyperResults_TatlowPiccoloTPMmedian/Carcinoma_Ecotypes/Ecotype_Assignment.txt") %>% 
+  clean_names()
+```
+
+## **Wrangle data**
+
+Filter to include only primary samples. Some individuals have multiple
+sequencing files eg TCGA-61-2008-01A... and TCGA-61-2008-02A... the 7-8th
+number in the sequence indicates the sample type, 01 is a primary tumour and 02
+is a recurring tumour (see GDC sample type codes).
+
+Remove any secondary samples and TCGA-23-1023-01R (have TCGA-23-1023-01A in
+ addition which I have kept).
+
+```{r wrangle_data, warning=FALSE, message=FALSE}
+rawCounts <- rawCounts %>% 
+  column_to_rownames("gene_id")  %>% #converts ENSEMBL ID to rownames
+  select(-matches("02A|TCGA-23-1023-01R")) 
+colnames(rawCounts) <- str_sub(colnames(rawCounts), start = 1, end = 12)
+
+primary_samples <- tibble(submitter_id = colnames(rawCounts)) %>%
+    mutate(across(submitter_id, ~str_sub(.x, start = 1, end = 12))) 
+#creates a list of the primary sample names
+
+# Notes: You could do the str_sub on the rawCounts colnames immediately - you
+# do it later anyway.  Also, I think you probably want to filter out "gene
+# name" from the primary samples, but you didn't so I haven't either so that we
+# can see if my objects end up identical to yours.
+```
+
+##Adding in contrast labels
+Contrast labels taken from Drews *et al*., 2022 for the majority of the cohort
+BUT there are TCGA OV cases with RNAseq data that don't match a label in the 
+pancancer dataset and some cases were missing from the supplementary files
+I used info on BRCA/HRD status from Wang *et al*., 2017 DOI [10.1038/ng.3849] 
+and Takaya *et al.,*., 2020 DOI:[10.1038/s41598-020-59671-3] 
+(As used in Drews *et al*., 2020) see 20230725_TCGA_OV_stratification.Rmd
+
+```{r Adding contrast labels to meta data,, include=FALSE}
+misFile <- "./Data/Processed/20230815_rnaseq_cases_missing_from_pancan.csv"
+meta_plus_contrast <- read_csv(misFile) %>%  
+  full_join(pancan_contrasts, by = ("submitter_id")) %>%  
+  select(submitter_id, starts_with("contrast_group")) %>%  
+  mutate(contrast_group = if_else(is.na(contrast_group.y), 
+                                  contrast_group.x, 
+                                  contrast_group.y)) %>%  
+  select("submitter_id", "contrast_group") %>% 
+  right_join(meta) 
+```
+
+Need to truncate IDs in ecotype_abundances to match format in other datasets
+First check for duplicate submitter ids in the ecotype abundances data
+
+```{r, check_for_dups}
+ecotype_abundances %>% 
+        mutate(submitter_id_trunc = str_sub(id, start = 1, end = 12)) %>%  
+        filter(n() > 1, .by = submitter_id_trunc)
+```
+
+We need to remove the secondaries ("02a" in the 4th position) and the
+recurrence sample "tcga_23_1023_01r_01r_1564_13_median".
+
+```{r, wrangle_ecotype_data}
+ecotype_abundances <- ecotype_abundances %>% 
+    filter(!str_detect(id, "02a|tcga_23_1023_01r_01r")) %>% 
+    mutate(submitter_id = str_replace_all(id, "_", "-") %>% 
+                          str_to_upper() %>%  
+                          str_sub(start = 1, end = 12)) %>%  
+    select(-id)
+#replace underscores with hyphens, truncate and capitalise the ID
+
+meta_plus_contrast <- full_join(meta_plus_contrast, 
+                                ecotype_abundances, 
+                                by="submitter_id")
+```
+
+## **Matching primary samples in rawcounts to samples in meta data**
+
+```{r wrangle_counts}
+meta_rawCounts_matched <- primary_samples %>%
+  left_join(meta_plus_contrast, by = c("submitter_id" = "submitter_id")) %>%
+  arrange(match(submitter_id, primary_samples$submitter_id))  %>%  
+  filter(!is.na(contrast_group))
+#filtered meta data to only primary samples with RNAseq data available
+#rows from meta_rawCounts_matched now in the same order as in primary_samples
+
+
+rawCounts_final <- rawCounts %>%  
+    select(gene_name, any_of(meta_rawCounts_matched$submitter_id))
+#selects the gene_name column from rawCounts and any columns (also in rawCounts)
+#where the column name matches an entry in the submitter_id column in 
+#meta_rawCounts_matched
+
+# We really don't need the "missing_contrast" object, you do use it again
+# later, but we can easily use a different object to get the same results
+```
+may need to refer back to previous rmd to get an object equivalent to missing_contrast

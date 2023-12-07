@@ -1,0 +1,749 @@
+---
+title: "20231204_DGE"
+output: html_document
+date: "2023-12-04"
+---
+
+
+```{r, setup, include=FALSE}
+library(AnnotationHub)
+library(ensembldb)
+library(AnnotationDbi) # install from CRAN
+library(clusterProfiler)
+library(msigdbr)
+library(pathview)
+library(pheatmap) 
+library(org.Hs.eg.db) #install from CRAN
+library(limma) #install from CRAN
+library(edgeR)
+library(DESeq2)
+library(janitor)
+library(statmod)
+library(GO.db)
+library(tidyverse) 
+
+
+projDir = "/run/user/1804238067/gvfs/sftp:host=clust1-headnode,user=lythgo02/mnt/nas1-data/jblab/group_folders/emily_lythgoe/20230724_EcoTyper_2nd_year"
+knitr::opts_knit$set(root.dir = projDir) #sets location for output files to projDir 
+knitr::opts_chunk$set(echo = TRUE) #setting default option for all code chunks 
+```
+
+# Differential Gene Expression Analysis on TCGA Ovarian Cohort
+##BRCA1/2 loss vs non-BRCA1/2 HRD high vs HRD low (assumed HR proficient)
+
+###Requires output from 20231204_datawrangling_DGE.Rmd
+
+
+Because I will filter out genes with low expression before DGE, makes sense
+to filter the genes before annotation.This should reduce the number of genes 
+with duplicate IDs allowing me to manually check any duplicates and select 
+which to keep. 
+
+##Filter genes by expression
+
+```{r}
+rawCounts_filtered <- as.matrix(rawCounts_final[,-1]) # remove gene_name col
+cpmCounts <- cpm(rawCounts_filtered)
+#cpm() calculates counts per million for normalisation
+
+keepGenesCPM <- rowMax(cpmCounts) >= 4
+#logical vector of genes to keep based on expression levels
+
+filCounts <- rawCounts_filtered[keepGenesCPM,] # 22250 genes remain
+keepGenesExpr <- filterByExpr(filCounts, 
+                              group = meta_rawCounts_matched$contrast_group)
+genesToKeep <- names(keepGenesExpr)[keepGenesExpr]
+length(genesToKeep)
+# [1] 20981
+```
+
+We may still filter out more genes due to annotation issues, but for now this
+is all the genes we might end up using.
+
+##Generate an annotation
+
+```{r geneAnnotation}
+colGene <- c("ENTREZID", "SYMBOL", "GENETYPE", "ENSEMBL") 
+
+#query org.Hs.eg.db gene annotation database using the Ensembl Gene IDs as keys, 
+#retrieving  the specified columns (colGene)
+geneIdMap <- AnnotationDbi::select(org.Hs.eg.db, 
+                                  keys = genesToKeep,
+                                  columns = colGene, 
+                                  keytype = "ENSEMBL") 
+
+sum(is.na(geneIdMap$ENTREZID))
+# [1] 2787
+
+dupEntrez <- geneIdMap %>% 
+  filter(!is.na(ENTREZID)) %>%
+  filter(n() > 1, .by = ENTREZID)
+#filter missing and non-unique rows by ENTREZID
+
+length(unique(dupEntrez$ENTREZID))
+# [1] 33
+
+```
+
+33 = small enough number to manually check via Ensembl and try to decide 
+which is the most appropriate. Can also check expression levels:
+
+```{r, check expression for duplicates}
+
+SPATA13 <- dupEntrez %>% filter(ENTREZID==221178) %>% pull(ENSEMBL)
+
+#density plot of logCPM for each ENSEMBL ID of SPATA13
+ cpmCounts[rownames(cpmCounts)%in%SPATA13,] %>%
+    as.data.frame() %>%
+    rownames_to_column("GeneID") %>%
+    pivot_longer(names_to = "Sample", values_to = "CPM", -GeneID) %>%
+    mutate(logCPM = log2(CPM + 0.1)) %>%
+    ggplot(aes(x = logCPM)) +
+        geom_density(aes(colour = GeneID))
+```
+given that these are overlapping loci (see Ensembl) I'd select the gene with 
+the higher expression - ENSG00000182957 
+
+
+Or for RABL2A we have 
+
+```{r}
+dupEntrez %>% filter(SYMBOL=="RABL2A")    
+```
+But Emsembl says that ENSG00000079974 should be RABL2B, which is ENTREZ 11158:
+https://www.ncbi.nlm.nih.gov/gene/11158
+
+In this case we have a duplicated Ensembl ID:
+
+```{r}
+filter(geneIdMap, ENTREZID==11159
+)
+filter(geneIdMap, ENSEMBL=="ENSG00000079974") 
+```
+
+So we need to delete the entry that is 
+        ENSEMBL ENTREZID SYMBOL       GENETYPE
+ENSG00000079974    11159 RABL2A protein-coding
+
+
+I went through the dupEntrez list and checked each ID. Most were incorrectly 
+labelled, some had multiple ID for the same locus in which case I checked which 
+had the higher count value. For RNVU1-29 and RNVU1-18 I picked at random due to 
+lack of info. This left me with the genes in Entreztokeep.csv
+```{r}
+#remove from geneIdMap
+EntrezToKeep <- read_csv("./Entreztokeep.csv") %>% 
+  select(-"Actual ENSEMBL match",-"Annotation",-"Density plot readout") %>% 
+  as.data.frame() 
+EntrezToKeep$ENTREZID <- as.character(EntrezToKeep$ENTREZID)
+
+#create a df of the genes to remove from the larger geneIDmap  
+EntrezToDiscard <- anti_join(dupEntrez,EntrezToKeep, by= c("ENSEMBL","ENTREZID"))
+
+#remove from geneIdMap
+geneIdMapFil <- anti_join(geneIdMap,EntrezToDiscard, by= c("ENSEMBL","ENTREZID"))
+```
+
+
+```{r}
+dupEnsembl <- geneIdMapFil %>% 
+  filter(!is.na(ENTREZID)) %>%
+  filter(n() > 1, .by = ENSEMBL)
+length(unique(dupEnsembl$ENSEMBL))
+# [1] 145 after filtering out duplicated ENTREZID
+```
+
+Keep the first of each duplicated ENSEMBL ID.
+
+```{r}
+#keep the first instance of each duplicated ENSEMBL ID
+geneIdMapFil <- geneIdMapFil %>% 
+        distinct(ENSEMBL, .keep_all=TRUE)
+
+  
+sum(duplicated(geneIdMapFil$ENSEMBL))
+# [1] 0
+# There's no remaining duplicated ENSEMBL ids.
+
+```
+Dont throw out ones with missing Entrez ID as this doesn't matter for GSEA, 
+just use the ENSEMBL ID and then you will have the same gene list for the GSEA 
+as you do for the DGE.
+
+##Alternate method of mapping using AnnotationHub
+
+May be a more suitable approach as AnnotationHub only returns 18 duplicates 
+(after filtering out low expression genes) and won't annotate pseudo/ncRNA etc 
+if there is a protein coding version available.
+
+
+```{r usingAnnotationHub}
+# Create an AnnotationHub object for Homo sapiens
+ah <- AnnotationHub()
+
+# Create a query to retrieve gene annotation data from AnnotationHub
+humanEnsDb <- query(ah, c("EnsDb", "Homo sapiens", "109"))[[1]]
+annotations <- genes(humanEnsDb, return.type = "data.frame")
+
+annot <- annotations %>%
+   select(gene_id, gene_name, entrezid) %>%
+   filter(gene_id %in% genesToKeep)
+
+length(unique(annot$gene_id)) 
+
+sum(is.na(annot$entrezid)) 
+
+annot %>%
+    filter(!is.na(entrezid)) %>%
+    filter(n() > 1, .by = entrezid)
+```
+
+There are only a few duplicated ENTREZ ids, so this would be easy to sort out.
+Also, the ones that we are missing here but get using the org.Hs.eg.db method
+are not that interesting:
+
+```{r}
+annot %>%
+    dplyr::filter(is.na(entrezid)) %>%
+    inner_join(geneIdMapFil, by = c(gene_id = "ENSEMBL")) %>%
+    as_tibble() %>%
+    count(GENETYPE)
+```
+
+I will continue with the annotation generated by the org.Hs.eg.db methods for
+now.
+
+```{r prepare_dge_list_object}
+counts <- rawCounts_final[geneIdMapFil$ENSEMBL,] %>%
+    select(-gene_name) %>%
+    as.matrix()
+
+dge <- DGEList(counts = counts, 
+                 genes = geneIdMapFil, 
+                 samples = meta_rawCounts_matched, 
+                 group = meta_rawCounts_matched$contrast_group) 
+```
+
+
+# Process all contrast groups together
+
+```{r, visualise count distribution}
+#check for samples that have more counts on average than other samples 
+boxplot(log(dgeFilExp$counts + 0.5), 
+        xaxt = "n", col = "turquoise4", 
+        xlab = "Samples") #raw log counts (+0.5 to prevent taking the log of 0)
+boxplot(cpm(dgeFilExp$counts, log = TRUE), 
+        xaxt = "n", col = "turquoise4", 
+        xlab = "Samples") # log cpm normalised counts
+
+plotSparsity(dge$counts, normalized = TRUE) 
+# normalised to account for variations in library size to avoid sequencing bias
+```
+
+**Normalisation**
+
+```{r}
+# calculate normalisation factors (does not normalise)
+dgeNorm <- calcNormFactors(dge)
+
+hist(dgeNorm$samples$norm.factors)
+
+#or with ggplot
+# Extract normalization factors from the DESeqDataSet object
+norm_factors <- dgeNorm$samples$norm.factors
+
+# Create a histogram using ggplot2
+ggplot(data.frame(NormFactors = norm_factors), aes(x = NormFactors)) +
+  geom_histogram(binwidth = 0.05, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Normalization Factors",
+       x = "Normalization Factors",
+       y = "Frequency") +
+  theme_minimal()
+```
+
+##Check for interactions 
+
+## MDS plots {.tabset}
+Multidimensional scaling plot of distances between gene expression profiles
+This function uses MDS to produce a principal coordinate (PCoA) or principal
+component (PCA) plot showing the relationships between samples. Distance 
+between spots (samples) on plot represent log2 fold changes between samples. 
+Use to identify interacting variables that you may want to control for in DE.
+
+
+
+```{r getMDSdata, include = FALSE}
+mdsDat <- plotMDS(dgeNorm, plot = FALSE)
+#only need to run plotMDS once for all factors you want to plot (all contained within mdsDat object)
+
+plotDat <- as_tibble(dgeNorm$samples) %>%
+    mutate(X = mdsDat$x) %>%
+    mutate(Y = mdsDat$y)
+
+plotDat
+```
+
+## Contrast Group
+
+```{r}
+ggplot(plotDat, aes(x = X, y = Y)) +
+        geom_point(aes(colour = contrast_group)) +
+  labs(title = "Contrast Group")
+```
+
+## Stage
+
+```{r}
+ggplot(plotDat, aes(x = X, y = Y)) +
+        geom_point(aes(colour = figo_stage))
+```
+
+## Ecotype
+
+```{r}
+ggplot(plotDat, aes(x = X, y = Y)) +
+        geom_point(aes(colour = carcinoma_ecotype))
+```
+Some separation of ecotypes but not correcting for this as it is confounded
+with gene expression (used to generate the CE classification) and the contrasts 
+## Site
+
+```{r}
+ggplot(plotDat, aes(x = X, y = Y)) +
+        geom_point(aes(colour = site_of_resection_or_biopsy))
+```
+
+**Define design matrix**
+
+```{r}
+
+modelMatrix <- model.matrix(~ 0 + contrast_group, data=dgeNorm$samples)
+colnames(modelMatrix) <- str_remove(colnames(modelMatrix), "contrast_")
+```
+
+**Voom transformation** 
+
+```{r}
+voom <- voom(dgeNorm, modelMatrix, plot = TRUE) 
+# transforms counts to log2 CPM based on the normalisation factors calculated
+# earlier & fits a linear model to the log2 CPM for each gene (row-wise),
+# calculates the residuals, and fits a smoothed curve to the square root of the
+# residual standard deviation by average expression. The smoothed curve is used
+# to obtain weights for each gene and sample, which are then passed into limma
+# for DE, taking into account the variability of each gene.
+```
+
+
+**Fit linear model**
+
+```{r}
+# fitting a linear model using weighted least squares for each gene
+fit <- lmFit(voom, modelMatrix) # now run DEA
+head(coef(fit)) #display the coefficients for the model terms defined in the model matrix. These coefficients will be used to perform hypothesis testing to determine significantly up/down regulated genes. 
+
+```
+
+**Define contrast**
+
+BRCA1/2 loss is the baseline for each contrast
+
+```{r}
+# comparison between groups (log-fold changes) are obtained as contrasts of these fitted linear models
+contr <- makeContrasts(groupHRD_high - groupBRCA1_2_loss, 
+                       groupHRD_low - groupBRCA1_2_loss, 
+                       levels = modelMatrix) # define the comparisons you want to make
+#  groupHRD_high - groupBRCA1_2_loss, # Coefficient 1
+ # groupHRD_low - groupBRCA1_2_loss,  # Coefficient 2
+contr
+#-1 = reference
+#0 = not included in comparison
+#1 = group to compare against reference
+
+contrastsfit <- contrasts.fit(fit, contrasts = contr) # fit the contrasts to the linear model fit and calculate the coefficients 
+fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for potential issues with heteroscedasticy in the data. Helps to obtain more accurate p-values and effect size estimates.
+```
+
+
+**Extract to contrasts and statistical testing.**
+The output from topTable() includes:
+-logFC: the log fold-change between cases and controls
+-t: the t-statistic for DE
+-P.Value: for DE (not adjusted for multiple testing)
+-adj.P.Val: p-value adjusted for multiple testing. Default adjustment method = Benjamini-Horchberg
+
+```{r}
+results_HRDhigh <- topTable(fittedContrasts, 
+                            coef= "groupHRD_high - groupBRCA1_2_loss", 
+                            sort.by = "P", n = Inf) 
+head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value), n=Inf means retreive all DE genes (no limit on number)
+
+up_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
+  dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) #%>% 
+  #write_csv("Output/Data/20230922_up_genes_BRCAloss_HRDhigh.csv")
+  
+down_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
+  dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) #%>% 
+ # write_csv("Output/Data/20230922_down_genes_BRCAloss_HRDhigh.csv")
+  
+allDEgenes_BRCAloss_HRDhigh <- results_HRDhigh %>%
+  dplyr::filter(adj.P.Val < 0.05, abs(logFC) >= 1.0) #%>% 
+  #write_csv("Output/Data/20231017_DEgenes_BRCAloss_HRDhigh.csv")
+
+results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
+head(results_HRDlow, 20)
+
+up_genes_BRCAloss_HRDlow <- results_HRDlow %>%
+  dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) #%>% 
+   #write_csv("Output/Data/20230926_up_genes_BRCAloss_HRDlow.csv") 
+
+down_genes_BRCAloss_HRDlow <- results_HRDlow %>%
+  dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) #%>% 
+  #write_csv("Output/Data/20230926_down_genes_BRCAloss_HRDlow.csv")
+  
+allDEgenes_BRCAloss_HRDlow <- results_HRDlow %>%
+  dplyr::filter(adj.P.Val < 0.05, abs(logFC) >= 1.0) #%>% 
+ # write_csv("Output/Data/20231017_DEgenes_BRCAloss_HRDlow.csv")
+```
+
+**Venn Diagram**
+```{r}
+  venn_list <- list(
+      up_in_HRD = as.character(up_genes_BRCAloss_HRDhigh$SYMBOL),
+      up_in_HRP = as.character(up_genes_BRCAloss_HRDlow$SYMBOL),
+      down_in_HRD = as.character(down_genes_BRCAloss_HRDhigh$SYMBOL),
+      down_in_HRP = as.character(down_genes_BRCAloss_HRDlow$SYMBOL))
+  
+ 
+vennDat <- ggvenn::ggvenn(venn_list, set_name_size = 3)   
+
+vennDat + labs(title = "In comparison to BRCA1/2 loss")
+
+```
+
+**Sanity checks**
+```{r}
+hist(results_HRDhigh$P.Value)
+
+hist(results_HRDlow$P.Value)
+```
+
+**Just looking at BRCA1/2 vs HRD low**
+```{r}
+
+# Total number of DE genes based on adjusted p value < 0.05
+length(which(results_HRDlow$adj.P.Val < 0.05))
+
+# Total number of DE genes based on adjusted p value < 0.05 and |logFC| (absolute log fold-change) >= 1.0
+length(which(results_HRDlow$adj.P.Val < 0.05 & abs(results_HRDlow$logFC) >= 1.0 ))
+
+# Total number of DE genes based on adjusted p value < 0.01 and |logFC| >= 1.0
+length(which(results_HRDlow$adj.P.Val < 0.01 & abs(results_HRDlow$logFC) >= 1.0 ))
+
+dtTab <- decideTests(fittedContrasts, p.value = 0.05, lfc = 1.0) #makes DE gene calls based on a specified p-value and log-fold change threshold 
+summary(dtTab)
+```
+
+**NOTE:** I have change `dt` to `dtTab` as `dt` is a function is the `stats` 
+package.
+
+
+**Plots for DE contrast: BRCA1/2 loss vs HRD low**
+
+```{r}
+#to plot a measure of significance against fold change 
+volcanoplot(
+  fittedContrasts,             
+  coef = "groupHRD_low - groupBRCA1_2_loss", # Specify which contrast to visualize
+  highlight = 10,               # The number of top genes to highlight 
+  names = fittedContrasts$genes$SYMBOL,    
+  main = "Volcano Plot"        # Plot title 
+)
+
+#x axis - upregulation (positive values) and downregulation (negative) of genes 
+#y-axis - statistical significance 
+#each gene = a dot
+
+#MA plot displays log-fold change against the average log expression for each gene 
+limma::plotMA(fittedContrasts, coef = "groupHRD_low - groupBRCA1_2_loss", 
+              status = dtTab[ ,"groupHRD_low - groupBRCA1_2_loss"], 
+              hl.pch = 20, 
+              bg.col = "grey") 
+o <- order(fittedContrasts$p.value[,"groupHRD_low - groupBRCA1_2_loss"]) # orders the genes based on their p-value from DEA
+x <- fittedContrasts$Amean #extracts the average log-expression values (Amean) for all genes 
+y <- fittedContrasts$coefficients[,"groupHRD_low - groupBRCA1_2_loss"] #extracts logFCfor the contrast group 
+G <- fittedContrasts$genes$SYMBOL #extracts the gene names for genes in the fittedContrasts objects 
+
+x_offset <- 0.2  # Adjust the x-offset as needed
+y_offset <- 0.1  # Adjust the y-offset as needed
+text(x[o[1:10]] + x_offset, y[o[1:10]] + y_offset,labels = G[o[1:10]], # to show the top 10 DE gene symbols
+     cex = 0.7,  # Adjust label size 
+     col = "black",  # Change label color 
+     srt = 45) 
+
+
+
+```
+
+```{r ggplot version_Emily}
+
+o <- order(fittedContrasts$p.value[, "groupHRD_low - groupBRCA1_2_loss"])
+x <- fittedContrasts$Amean
+y <- fittedContrasts$coefficients[, "groupHRD_low - groupBRCA1_2_loss"]
+G <- fittedContrasts$genes$SYMBOL
+
+# Create the MA plot using ggplot2 with your existing fittedContrasts object
+e1 <- ggplot(data = fittedContrasts$genes, aes(x = x, y = y)) +
+  geom_point(aes(color = fittedContrasts$p.value[, "groupHRD_low - groupBRCA1_2_loss"] < 0.05), size = 1) +
+  geom_text(data = fittedContrasts$genes[o[1:10], ], 
+            aes(x = x[o[1:10]] + 0.2, y = y[o[1:10]] + 0.1, label = G[o[1:10]]), size = 3, color = "black", angle = 45) +
+  labs(
+    x = "Average Log-Expression",
+    y = "Log-Fold Change",
+    title = "MA Plot: HR Proficient vs BRCA1/2 Loss",
+    color = "FDR < 0.05"
+  ) +
+  theme_minimal()
+e1
+
+o2 <- order(fittedContrasts$p.value[, "groupHRD_high - groupBRCA1_2_loss"])
+x <- fittedContrasts$Amean
+y2 <- fittedContrasts$coefficients[, "groupHRD_high - groupBRCA1_2_loss"]
+G <- fittedContrasts$genes$SYMBOL
+
+e2 <- ggplot(data = fittedContrasts$genes, aes(x = x, y = y2)) +
+  geom_point(aes(color = fittedContrasts$p.value[, "groupHRD_high - groupBRCA1_2_loss"] < 0.05), size = 1) +
+  geom_text(data = fittedContrasts$genes[o2[1:10], ], aes(x = x[o2[1:10]] + 0.2, y = y[o2[1:10]] + 0.1, label = G[o2[1:10]]), size = 3, color = "black", angle = 45) +
+  labs(
+    x = "Average Log-Expression",
+    y = "Log-Fold Change",
+    title = "MA Plot: Non-BRCA HRD vs BRCA1/2 Loss",
+    color = "FDR < 0.05"
+  ) 
+e2
+```
+
+**NOTE:** This is a bit untidy and little tricky to decypher. I would recommend
+building all the necessary data for the plot into a data frame and then using
+that in ggplot.
+Also, the p.value in the `fittedContrasts` is not the FDR, you need the
+adjusted p-value.
+Easier here just to use your `results_HRDxxx` objects
+Also, ggrepel is a handy package for pushing the labels around
+
+```{r}
+library(ggrepel)
+plotDat <- results_HRDlow %>%  arrange(desc(adj.P.Val))
+a1 <- ggplot(plotDat, aes(x = AveExpr, y = logFC)) +
+    geom_point(aes(colour = adj.P.Val < 0.05), size = 1) +
+    geom_text_repel(data = ~top_n(.x, 10, wt = -adj.P.Val), 
+                    aes(label = SYMBOL),
+                    min.segment.length = unit(0, 'lines'),
+                    box.padding = 0.5) +
+    labs(
+        x = "Average Log-Expression",
+        y = "Log-Fold Change",
+        title = "MA Plot: HR Proficient vs BRCA1/2 Loss",
+        color = "FDR < 0.05"
+    ) + 
+   theme_minimal()
+a1 + e1
+```
+
+**need to fix heatmap**
+```{r, include=FALSE, eval = FALSE}
+
+# Select the top genes based on FDR (assuming you have FDR values)
+topGenesHRDlow <- results_HRDlow %>% 
+  arrange(adj.P.Val) %>% #ascending order
+  head(300)  
+  
+logFC_matrix <- topGenesHRDlow %>% 
+  dplyr::select(SYMBOL, logFC)
+
+rownames(logFC_matrix) <- logFC_matrix[, "SYMBOL"]
+
+logFC_matrix <- logFC_matrix %>% 
+  dplyr::select(-"SYMBOL") %>% 
+  as.matrix()  
+
+pheatmap(logFC_matrix, 
+         cluster_rows = TRUE,  # Hierarchical clustering for rows
+         cluster_cols = TRUE, # No clustering for columns
+         color = colorRampPalette(c("blue", "white", "red"))(50), # Color scheme
+         main = "Heatmap of Top DE Genes", # Heatmap title
+         fontsize_row = 2,      # Row label font size
+         fontsize_col = 2,      # Column label font size
+         show_rownames = TRUE,  # Show row names
+         show_colnames = TRUE)  # Show column names
+```
+
+
+**Gene ontology analysis with Goana**
+
+```{r}
+# subset DE genes to include those of great significance and large-ish logFC
+genesDE_HRDhigh <- results_HRDhigh %>%
+  mutate(bigLogFC = case_when(logFC < -1.0 | logFC > 1.0 ~ "keep",
+                              TRUE ~ "discard")) %>% 
+  dplyr::filter(bigLogFC == "keep") %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(ENTREZID) 
+genesDE_HRDhigh <- as.vector(genesDE_HRDhigh)  
+
+## gene ontology
+gene_ont <- goana(genesDE_HRDhigh)
+ topGO(gene_ont)
+
+gene_ont$adj.P.Val <- p.adjust(gene_ont$P.ENTREZID, method="BH")
+
+gene_ont <- gene_ont %>% 
+  rownames_to_column(var = "goTerm")
+
+#write_csv(gene_ont, "Output/Data/TCGA_DGE_geneOntology_20230922.csv")
+
+```
+
+**Clusterprofiler (Yu et al. 2012)**
+
+**Supports direct online access of the current KEGG database (KEGG: Kyoto Encyclopedia of Genes and Genomes), rather than relying on R annotation packages**
+
+```{r, KEGG enrichment analysis}
+
+search_kegg_organism('human', by='common_name') #kegg code = hsa
+
+sigGenes_HRDhigh <- allDEgenes_BRCAloss_HRDhigh %>% 
+   pull(ENTREZID) %>% 
+  as.numeric()
+
+sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>% 
+   pull(ENTREZID) %>% 
+  as.numeric()
+
+ keggResHigh <- enrichKEGG(gene= sigGenes_HRDhigh, organism = 'hsa')
+ 
+ keggReslow <- enrichKEGG(gene= sigGenes_HRDlow, organism = 'hsa')
+ 
+ as_tibble(keggReslow)
+ browseKEGG(keggResHigh, 'hsa04657') # to visualise one of the hits in browser
+ 
+``` 
+
+Wont map IDs using correct EntrezIDs eg BRCA1 hsa672
+
+```{r}
+ewe <- enrichKEGG(gene= sigGenes_HRDlow, 
+                   organism = 'hsa',
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1)
+filter(as.data.frame(ewe), str_detect(geneID, "672"))
+```
+
+
+```{r}
+logFC_HRDlow <- results_HRDlow%>% dplyr::select(ENTREZID, logFC) 
+rownames(logFC_HRDlow) <- logFC_HRDlow$ENTREZID
+
+
+logFC_HRDlow <- logFC_HRDlow %>% dplyr::select(logFC) 
+
+pathview(gene.data = logFC_HRDlow, 
+         pathway.id = "04657", 
+         species = "hsa", 
+         kegg.native = TRUE, # switch to false for PDF 
+         multi.state = TRUE,
+         out.suffix = "BRCAvsHRDlow_IL17",
+         keys.align = "y",
+         bins = 15,
+        low=list(gene="steelblue"),
+        high=list(gene="gold"),
+        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
+
+pathview(gene.data = logFC_HRDlow, 
+         pathway.id = "hsa04080", 
+         species = "hsa", 
+         kegg.native = TRUE,   # switch to false for PDF
+         multi.state = TRUE,
+         out.suffix = "BRCAvsHRDlow",
+         keys.align = "y",
+         #limit = 3, # specify range of colour scale 
+         bins = 15,
+        low=list(gene="steelblue"),
+        high=list(gene="gold"),
+        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
+
+pathview(gene.data = logFC_HRDlow, 
+         pathway.id = "hsa672", 
+         species = "hsa", 
+         kegg.native = TRUE,   # switch to false for PDF
+         multi.state = TRUE,
+         out.suffix = "BRCAvsHRDlowBRCA1",
+         keys.align = "y",
+         #limit = 3, # specify range of colour scale 
+         bins = 15,
+        low=list(gene="steelblue"),
+        high=list(gene="gold"),
+        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
+```
+
+**clusterProfiler can also perform over-representation analysis on GO terms with enrichGO**
+
+can't generate a plot for the BRCA1 vs HRDhigh
+
+```{r}
+
+sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>% 
+   pull(ENSEMBL) 
+universe <- results_HRDlow$ENSEMBL # create a background (universe) gene list = all genes in analysis 
+
+ego <- enrichGO(gene          = sigGenes_HRDlow, # defined earlier 
+                universe      = universe,
+                OrgDb         = org.Hs.eg.db,
+                keyType       = "ENSEMBL",
+                ont           = "ALL", # One of "BP" (biological processes), "MF", and "CC" subontologies, or "ALL" for all three.
+                pvalueCutoff  = 0.01,
+                readable      = TRUE)
+
+dotplotHRDlow <- dotplot(ego, font.size = 9)
+print(dotplotHRDlow)
+
+sigGenes_HRDhigh <- allDEgenes_BRCAloss_HRDhigh %>% 
+   pull(ENSEMBL) 
+universe <- results_HRDhigh$ENSEMBL # create a background (universe) gene list = all genes in analysis 
+
+ego <- enrichGO(gene          = sigGenes_HRDhigh, # defined earlier 
+                universe      = universe,
+                OrgDb         = org.Hs.eg.db,
+                keyType       = "ENSEMBL",
+                ont           = "ALL",
+                pvalueCutoff  = 0.01,
+                readable      = TRUE)
+
+dotplotHRDhigh <- dotplot(ego, font.size = 9) 
+print(dotplotHRDhigh)
+
+```
+**GSEA**
+```{r}
+
+# Load pathway details
+term2gene <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  select(gs_name, entrez_gene)
+
+term2name<- msigdbr(species = "Homo sapiens", category = "H") %>%
+  select(gs_name, gs_description) %>%
+  distinct()
+
+# rank genes (by combining the sign of the fold change and the pvalue)
+rankedGenesHRDlow <- results_HRDlow %>%
+  mutate(rank = -log10(P.Value) * sign(logFC)) %>%
+  arrange(desc(rank)) %>%
+  pull(rank, ENTREZID)
+
+gseaRes.HRDlow <- GSEA(rankedGenesHRDlow,
+                TERM2GENE = term2gene,
+                TERM2NAME = term2name,
+                pvalueCutoff = 1.00, 
+                minGSSize = 15,
+                maxGSSize = 500)
+```
+
