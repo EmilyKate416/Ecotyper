@@ -12,7 +12,7 @@ library(AnnotationDbi) # install from CRAN
 library(clusterProfiler)
 library(msigdbr)
 library(pathview)
-library(pheatmap) 
+library(pheatmap) #only require if I use alternatie heatmap method, otherwise need "ComplexHeatmap"
 library(org.Hs.eg.db) #install from CRAN
 library(limma) #install from CRAN
 library(edgeR)
@@ -142,6 +142,8 @@ EntrezToDiscard <- anti_join(dupEntrez,EntrezToKeep, by= c("ENSEMBL","ENTREZID")
 
 #remove from geneIdMap
 geneIdMapFil <- anti_join(geneIdMap,EntrezToDiscard, by= c("ENSEMBL","ENTREZID"))
+
+
 ```
 
 
@@ -228,17 +230,21 @@ dge <- DGEList(counts = counts,
 # Process all contrast groups together
 
 ```{r, visualise count distribution}
+
 #check for samples that have more counts on average than other samples 
-boxplot(log(dgeFilExp$counts + 0.5), 
-        xaxt = "n", col = "turquoise4", 
-        xlab = "Samples") #raw log counts (+0.5 to prevent taking the log of 0)
-boxplot(cpm(dgeFilExp$counts, log = TRUE), 
-        xaxt = "n", col = "turquoise4", 
-        xlab = "Samples") # log cpm normalised counts
+boxplot(log(dge$counts + 0.5), 
+        xaxt = "n", 
+        col = "turquoise4", 
+        xlab = "Samples") 
+boxplot(cpm(dge$counts, log = TRUE), 
+        xaxt = "n", 
+        col = "turquoise4", 
+        xlab = "Samples")
 
 plotSparsity(dge$counts, normalized = TRUE) 
 # normalised to account for variations in library size to avoid sequencing bias
 ```
+
 
 **Normalisation**
 
@@ -339,7 +345,8 @@ voom <- voom(dgeNorm, modelMatrix, plot = TRUE)
 ```{r}
 # fitting a linear model using weighted least squares for each gene
 fit <- lmFit(voom, modelMatrix) # now run DEA
-head(coef(fit)) #display the coefficients for the model terms defined in the model matrix. These coefficients will be used to perform hypothesis testing to determine significantly up/down regulated genes. 
+head(coef(fit)) 
+#display coefficients used for hypothesis testing of sig. up/down regulated genes 
 
 ```
 
@@ -348,10 +355,10 @@ head(coef(fit)) #display the coefficients for the model terms defined in the mod
 BRCA1/2 loss is the baseline for each contrast
 
 ```{r}
-# comparison between groups (log-fold changes) are obtained as contrasts of these fitted linear models
+# comparison between groups using the fitted linear model gives log-fold changes
 contr <- makeContrasts(groupHRD_high - groupBRCA1_2_loss, 
                        groupHRD_low - groupBRCA1_2_loss, 
-                       levels = modelMatrix) # define the comparisons you want to make
+                       levels = modelMatrix) 
 #  groupHRD_high - groupBRCA1_2_loss, # Coefficient 1
  # groupHRD_low - groupBRCA1_2_loss,  # Coefficient 2
 contr
@@ -359,17 +366,22 @@ contr
 #0 = not included in comparison
 #1 = group to compare against reference
 
-contrastsfit <- contrasts.fit(fit, contrasts = contr) # fit the contrasts to the linear model fit and calculate the coefficients 
-fittedContrasts <- eBayes(contrastsfit, robust = TRUE) # use robust emperical bayes for statitsical testing to account for potential issues with heteroscedasticy in the data. Helps to obtain more accurate p-values and effect size estimates.
+contrastsfit <- contrasts.fit(fit, contrasts = contr) 
+# fit contrasts to model & calculate coefficients 
+
+fittedContrasts <- eBayes(contrastsfit, robust = TRUE) 
+
 ```
+###eBayes() Robust emperical bayes for statistical testing to account for heteroscedasticy 
+in the data. Helps to obtain more accurate p-values and effect size estimates.
 
-
-**Extract to contrasts and statistical testing.**
+**Extract to contrasts and statistical testing**
 The output from topTable() includes:
 -logFC: the log fold-change between cases and controls
 -t: the t-statistic for DE
 -P.Value: for DE (not adjusted for multiple testing)
--adj.P.Val: p-value adjusted for multiple testing. Default adjustment method = Benjamini-Horchberg
+-adj.P.Val: p-value adjusted for multiple testing. 
+ Default adjustment method = Benjamini-Horchberg
 
 ```{r}
 results_HRDhigh <- topTable(fittedContrasts, 
@@ -378,31 +390,31 @@ results_HRDhigh <- topTable(fittedContrasts,
 head(results_HRDhigh, 20) # look at top 20 DE genes (sorted by p value), n=Inf means retreive all DE genes (no limit on number)
 
 up_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
-  dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) #%>% 
-  #write_csv("Output/Data/20230922_up_genes_BRCAloss_HRDhigh.csv")
+  dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) %>% 
+  write_csv("Output/Data/20231211_up_genes_BRCAloss_HRDhigh.csv")
   
 down_genes_BRCAloss_HRDhigh <- results_HRDhigh %>%
-  dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) #%>% 
- # write_csv("Output/Data/20230922_down_genes_BRCAloss_HRDhigh.csv")
+  dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) %>% 
+  write_csv("Output/Data/20231211_down_genes_BRCAloss_HRDhigh.csv")
   
 allDEgenes_BRCAloss_HRDhigh <- results_HRDhigh %>%
-  dplyr::filter(adj.P.Val < 0.05, abs(logFC) >= 1.0) #%>% 
-  #write_csv("Output/Data/20231017_DEgenes_BRCAloss_HRDhigh.csv")
+  dplyr::filter(adj.P.Val < 0.05, abs(logFC) >= 1.0) %>% 
+  write_csv("Output/Data/20231211_DEgenes_BRCAloss_HRDhigh.csv")
 
 results_HRDlow <- topTable(fittedContrasts, coef= "groupHRD_low - groupBRCA1_2_loss", sort.by = "P", n = Inf)
 head(results_HRDlow, 20)
 
 up_genes_BRCAloss_HRDlow <- results_HRDlow %>%
-  dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) #%>% 
-   #write_csv("Output/Data/20230926_up_genes_BRCAloss_HRDlow.csv") 
+  dplyr::filter(adj.P.Val < 0.05, logFC >= 1.0) %>% 
+   write_csv("Output/Data/20231211_up_genes_BRCAloss_HRDlow.csv") 
 
 down_genes_BRCAloss_HRDlow <- results_HRDlow %>%
-  dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) #%>% 
-  #write_csv("Output/Data/20230926_down_genes_BRCAloss_HRDlow.csv")
+  dplyr::filter(adj.P.Val < 0.05, logFC <= -1.0) %>% 
+  write_csv("Output/Data/20231211_down_genes_BRCAloss_HRDlow.csv")
   
 allDEgenes_BRCAloss_HRDlow <- results_HRDlow %>%
-  dplyr::filter(adj.P.Val < 0.05, abs(logFC) >= 1.0) #%>% 
- # write_csv("Output/Data/20231017_DEgenes_BRCAloss_HRDlow.csv")
+  dplyr::filter(adj.P.Val < 0.05, abs(logFC) >= 1.0) %>% 
+  write_csv("Output/Data/20231211_DEgenes_BRCAloss_HRDlow.csv")
 ```
 
 **Venn Diagram**
@@ -419,6 +431,9 @@ vennDat <- ggvenn::ggvenn(venn_list, set_name_size = 3)
 vennDat + labs(title = "In comparison to BRCA1/2 loss")
 
 ```
+As we would expect, lots more genes up/down regulated in the HR proficient group 
+in comparison to the BRCA1/2-mediated HRD group than we see when we compare the 
+non BRCA1/2-mediated HRD (suspected) group to the BRCA1/2-HRD group.
 
 **Sanity checks**
 ```{r}
@@ -443,9 +458,6 @@ dtTab <- decideTests(fittedContrasts, p.value = 0.05, lfc = 1.0) #makes DE gene 
 summary(dtTab)
 ```
 
-**NOTE:** I have change `dt` to `dtTab` as `dt` is a function is the `stats` 
-package.
-
 
 **Plots for DE contrast: BRCA1/2 loss vs HRD low**
 
@@ -463,80 +475,22 @@ volcanoplot(
 #y-axis - statistical significance 
 #each gene = a dot
 
+```
+
+```{r MA plot with ggplot}
 #MA plot displays log-fold change against the average log expression for each gene 
-limma::plotMA(fittedContrasts, coef = "groupHRD_low - groupBRCA1_2_loss", 
-              status = dtTab[ ,"groupHRD_low - groupBRCA1_2_loss"], 
-              hl.pch = 20, 
-              bg.col = "grey") 
-o <- order(fittedContrasts$p.value[,"groupHRD_low - groupBRCA1_2_loss"]) # orders the genes based on their p-value from DEA
-x <- fittedContrasts$Amean #extracts the average log-expression values (Amean) for all genes 
-y <- fittedContrasts$coefficients[,"groupHRD_low - groupBRCA1_2_loss"] #extracts logFCfor the contrast group 
-G <- fittedContrasts$genes$SYMBOL #extracts the gene names for genes in the fittedContrasts objects 
-
-x_offset <- 0.2  # Adjust the x-offset as needed
-y_offset <- 0.1  # Adjust the y-offset as needed
-text(x[o[1:10]] + x_offset, y[o[1:10]] + y_offset,labels = G[o[1:10]], # to show the top 10 DE gene symbols
-     cex = 0.7,  # Adjust label size 
-     col = "black",  # Change label color 
-     srt = 45) 
-
-
-
-```
-
-```{r ggplot version_Emily}
-
-o <- order(fittedContrasts$p.value[, "groupHRD_low - groupBRCA1_2_loss"])
-x <- fittedContrasts$Amean
-y <- fittedContrasts$coefficients[, "groupHRD_low - groupBRCA1_2_loss"]
-G <- fittedContrasts$genes$SYMBOL
-
-# Create the MA plot using ggplot2 with your existing fittedContrasts object
-e1 <- ggplot(data = fittedContrasts$genes, aes(x = x, y = y)) +
-  geom_point(aes(color = fittedContrasts$p.value[, "groupHRD_low - groupBRCA1_2_loss"] < 0.05), size = 1) +
-  geom_text(data = fittedContrasts$genes[o[1:10], ], 
-            aes(x = x[o[1:10]] + 0.2, y = y[o[1:10]] + 0.1, label = G[o[1:10]]), size = 3, color = "black", angle = 45) +
-  labs(
-    x = "Average Log-Expression",
-    y = "Log-Fold Change",
-    title = "MA Plot: HR Proficient vs BRCA1/2 Loss",
-    color = "FDR < 0.05"
-  ) +
-  theme_minimal()
-e1
-
-o2 <- order(fittedContrasts$p.value[, "groupHRD_high - groupBRCA1_2_loss"])
-x <- fittedContrasts$Amean
-y2 <- fittedContrasts$coefficients[, "groupHRD_high - groupBRCA1_2_loss"]
-G <- fittedContrasts$genes$SYMBOL
-
-e2 <- ggplot(data = fittedContrasts$genes, aes(x = x, y = y2)) +
-  geom_point(aes(color = fittedContrasts$p.value[, "groupHRD_high - groupBRCA1_2_loss"] < 0.05), size = 1) +
-  geom_text(data = fittedContrasts$genes[o2[1:10], ], aes(x = x[o2[1:10]] + 0.2, y = y[o2[1:10]] + 0.1, label = G[o2[1:10]]), size = 3, color = "black", angle = 45) +
-  labs(
-    x = "Average Log-Expression",
-    y = "Log-Fold Change",
-    title = "MA Plot: Non-BRCA HRD vs BRCA1/2 Loss",
-    color = "FDR < 0.05"
-  ) 
-e2
-```
-
-**NOTE:** This is a bit untidy and little tricky to decypher. I would recommend
-building all the necessary data for the plot into a data frame and then using
-that in ggplot.
-Also, the p.value in the `fittedContrasts` is not the FDR, you need the
-adjusted p-value.
-Easier here just to use your `results_HRDxxx` objects
-Also, ggrepel is a handy package for pushing the labels around
-
-```{r}
+#build necessary data into dataframe for use with ggplot
+#require adjusted p-value/FDR
+#greppel = handy package to push labels around geom_text_repel
 library(ggrepel)
-plotDat <- results_HRDlow %>%  arrange(desc(adj.P.Val))
-a1 <- ggplot(plotDat, aes(x = AveExpr, y = logFC)) +
+
+MAplotlow <- results_HRDlow %>%  arrange(desc(adj.P.Val))
+#arrange so we can label the top 10 
+MAplot_HRDlow <- ggplot(MAplotlow, aes(x = AveExpr, y = logFC)) +
     geom_point(aes(colour = adj.P.Val < 0.05), size = 1) +
-    geom_text_repel(data = ~top_n(.x, 10, wt = -adj.P.Val), 
+    geom_text_repel(data = ~top_n(.x, 10, wt = -adj.P.Val), #select top 10 genes for labeling by negative adj.p.value (i.e. the ten most sig)
                     aes(label = SYMBOL),
+                    size=3.3,
                     min.segment.length = unit(0, 'lines'),
                     box.padding = 0.5) +
     labs(
@@ -545,36 +499,66 @@ a1 <- ggplot(plotDat, aes(x = AveExpr, y = logFC)) +
         title = "MA Plot: HR Proficient vs BRCA1/2 Loss",
         color = "FDR < 0.05"
     ) + 
-   theme_minimal()
-a1 + e1
+   theme_classic()
+
+
+MAplothigh<- results_HRDhigh %>% arrange(desc(adj.P.Val))
+MAplot_HRDhigh <- ggplot(MAplothigh, aes(x=AveExpr, y=logFC)) +
+  geom_point(aes(colour = adj.P.Val < 0.05), size=1) + 
+               geom_text_repel(data= ~top_n(.x, 10, wt=-adj.P.Val), 
+                               aes(label=SYMBOL),
+                               size=3.3,
+                                min.segment.length = unit(0, 'lines'),
+                                box.padding = 0.5) +
+    labs(
+        x = "Average Log-Expression",
+        y = "Log-Fold Change",
+        title = "MA Plot: Non-BRCA1/2 HRD vs BRCA1/2 Loss",
+        color = "FDR < 0.05"
+    ) +
+  theme_classic()
+
+MAplot_HRDlow
+MAplot_HRDhigh
 ```
-
-**need to fix heatmap**
+ENSG00000280303 = E2F1-regulated inhibitor of cell death lncRNA, missing 
+annotation so filtered out from heatmap along with 27 others for the 
+HRDlow comparison. All those missing annotation appear to be non-coding 
+or novel genes.
 ```{r, include=FALSE, eval = FALSE}
+library(ComplexHeatmap)
+library(circlize)
+# Select the top genes based on adj.P.Val
+  topGenesHRDlow <- results_HRDlow %>% 
+  top_n(300, wt= -adj.P.Val) %>% 
+  pull(ENSEMBL)
 
-# Select the top genes based on FDR (assuming you have FDR values)
-topGenesHRDlow <- results_HRDlow %>% 
-  arrange(adj.P.Val) %>% #ascending order
-  head(300)  
+  plotDat <- voom$E[topGenesHRDlow,]
   
-logFC_matrix <- topGenesHRDlow %>% 
-  dplyr::select(SYMBOL, logFC)
+  z.mat <- t(scale(t(plotDat), center=TRUE, scale=TRUE))
 
-rownames(logFC_matrix) <- logFC_matrix[, "SYMBOL"]
+# colour palette
+myPalette <- c("royalblue3", "ivory", "orangered3")
+myRamp <- colorRamp2(c(-2, 0, 2), myPalette)
 
-logFC_matrix <- logFC_matrix %>% 
-  dplyr::select(-"SYMBOL") %>% 
-  as.matrix()  
+Heatmap(z.mat, name = "z-score",
+        col = myRamp,
+        show_row_names = FALSE, 
+        show_column_names = FALSE)
 
-pheatmap(logFC_matrix, 
-         cluster_rows = TRUE,  # Hierarchical clustering for rows
-         cluster_cols = TRUE, # No clustering for columns
-         color = colorRampPalette(c("blue", "white", "red"))(50), # Color scheme
-         main = "Heatmap of Top DE Genes", # Heatmap title
-         fontsize_row = 2,      # Row label font size
-         fontsize_col = 2,      # Column label font size
-         show_rownames = TRUE,  # Show row names
-         show_colnames = TRUE)  # Show column names
+topGenesHRDhigh <- results_HRDhigh %>% 
+  top_n(300, wt= -adj.P.Val) %>% 
+  pull(ENSEMBL)
+
+  plotDath <- voom$E[topGenesHRDhigh,]
+  
+  z.math <- t(scale(t(plotDath), center=TRUE, scale=TRUE))
+
+  Heatmap(z.math, name = "z-score",
+        col = myRamp,
+        show_row_names = FALSE, 
+        show_column_names = FALSE)
+  
 ```
 
 
