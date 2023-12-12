@@ -455,7 +455,8 @@ length(which(results_HRDlow$adj.P.Val < 0.05 & abs(results_HRDlow$logFC) >= 1.0 
 # Total number of DE genes based on adjusted p value < 0.01 and |logFC| >= 1.0
 length(which(results_HRDlow$adj.P.Val < 0.01 & abs(results_HRDlow$logFC) >= 1.0 ))
 
-dtTab <- decideTests(fittedContrasts, p.value = 0.05, lfc = 1.0) #makes DE gene calls based on a specified p-value and log-fold change threshold 
+dtTab <- decideTests(fittedContrasts, p.value = 0.05, lfc = 1.0) 
+#makes DE gene calls based on a specified p-value and log-fold change threshold 
 summary(dtTab)
 ```
 
@@ -489,7 +490,7 @@ MAplotlow <- results_HRDlow %>%  arrange(desc(adj.P.Val))
 #arrange so we can label the top 10 
 MAplot_HRDlow <- ggplot(MAplotlow, aes(x = AveExpr, y = logFC)) +
     geom_point(aes(colour = adj.P.Val < 0.05), size = 1) +
-    geom_text_repel(data = ~top_n(.x, 10, wt = -adj.P.Val), #select top 10 genes for labeling by negative adj.p.value (i.e. the ten most sig)
+    geom_text_repel(data = ~top_n(.x, 10, wt = -adj.P.Val), #select top 10 sig genes for labeling by -ve adj.p.val
                     aes(label = SYMBOL),
                     size=3.3,
                     min.segment.length = unit(0, 'lines'),
@@ -527,71 +528,182 @@ annotation so filtered out from heatmap along with 27 others for the
 HRDlow comparison. All those missing annotation appear to be non-coding 
 or novel genes.
 
-```{r, include=FALSE}
+```{r, eval=FALSE, heatmap}
 
 # Select the top genes based on adj.P.Val
   topGenesHRDlow <- results_HRDlow %>% 
   top_n(300, wt= -adj.P.Val) %>% 
   pull(ENSEMBL)
 
-  plotDat <- voom$E[topGenesHRDlow,]
-  
+#extract normalised data to plot from E List object from voom transformation
+  plotDat <- voom$E[topGenesHRDlow,] 
+
+#z-scale the data (results = number of SD the GE is from the mean for that gene 
+#across all samples)
   z.mat <- t(scale(t(plotDat), center=TRUE, scale=TRUE))
+
+  ha1 <- HeatmapAnnotation(df=voom$targets$group, 
+                           col = list(df = c("BRCA1_2_loss" = "pink", 
+                                             "HRD_high" = "cornflowerblue", 
+                                             "HRD_low" = "purple"))) 
   
-  hc <- hclust(dist(z.mat))
-  
-  ha1 <- HeatmapAnnotation(df=voom$targets$group, col = list(df = c("BRCA1_2_loss" = "red", "HRD_high" = "green", "HRD_low" = "salmon"))) 
-  
+#cluster the genes with distance matrix (allows for separation )   
+  hc <- hclust(dist(z.mat)) 
+#tried plotting the heatmap without clustering first and saw clear separation 
+#into two groups so just pulling out those groups by clustering first and then 
+#adding the resulting groups as annotation  
+
+  cuthc <- cutree(hc, k=2) 
+#cut tree into 2 clusters, can specify height to cut tree or number of clusters
+ #1's and 2's indicate the cluster that the genes belong to
+
+gene <- enframe(cuthc, name="GeneID", value="cluster") %>% 
+  select(cluster)
+
+ha2 <- HeatmapAnnotation(df=gene, which="row", col = list(cluster = c("1" = "cadetblue1", "2" = "darkcyan"))) 
 # colour palette
 myPalette <- c("royalblue3", "ivory", "orangered3")
 myRamp <- colorRamp2(c(-2, 0, 2), myPalette)
-Heatmap(z.mat, name = "z-score",
+
+
+hmlow <- Heatmap(z.mat, name = "z-score",
         col = myRamp,
         show_row_names = FALSE, 
         show_column_names = FALSE,
-        rect_gp = gpar(col = "lightgrey", lwd=0.3),
-        top_annotation=ha1)
-```
-
-```{r}
-cuthc <- cutree(hc, k=2)
-cuthc
-
-gene <- enframe(cuthc, name="GeneID", value="Group") %>% 
-  select(Group)
-ha2 <- HeatmapAnnotation(df=gene, which="row", col = list(Group = c("1" = "red", "2" = "green"))) 
-  
-
-Heatmap(z.mat, name = "z-score",
-        col = myRamp,
-        show_row_names = FALSE, 
-        show_column_names = FALSE,
-        rect_gp = gpar(col = "lightgrey", lwd=0.3),
         cluster_rows = hc,
         top_annotation=ha1,
         right_annotation=ha2)
 
+hmlow
+
 ```
 
-```{r}
 
-#trying something
+```{r, pheatmap}
 
-topGenesHRDhigh <- results_HRDhigh %>% 
+# Select the top genes based on adj.P.Val
+  topGenesHRDlow <- results_HRDlow %>% 
   top_n(300, wt= -adj.P.Val) %>% 
   pull(ENSEMBL)
 
-  plotDath <- voom$E[topGenesHRDhigh,]
-  
-  z.math <- t(scale(t(plotDath), center=TRUE, scale=TRUE))
+#extract normalised data to plot from E List object from voom transformation
+  plotDat <- voom$E[topGenesHRDlow,] 
 
-  Heatmap(z.math, name = "z-score",
-        col = myRamp,
-        show_row_names = FALSE, 
-        show_column_names = FALSE)
+#z-scale the data (results = number of SD the GE is from the mean for that gene 
+#across all samples)
+  z.mat <- t(scale(t(plotDat), center=TRUE, scale=TRUE))
+  
+  
+#cluster the genes with distance matrix (allows for separation )   
+  hc <- hclust(dist(z.mat)) 
+#tried plotting the heatmap without clustering first and saw clear separation 
+#into two groups so just pulling out those groups by clustering first and then 
+#adding the resulting groups as annotation  
+
+  cuthc <- cutree(hc, k=2) 
+#cut tree into 2 clusters, can specify height to cut tree or number of clusters
+ #1's and 2's indicate the cluster that the genes belong to
+  
+  # colour palette
+myPalette <- c("royalblue3", "ivory", "orangered3")
+myRamp <- colorRamp2(c(-2, 0, 2), myPalette)
+
+library(pheatmap)
+gene_cluster <- data.frame(cluster = cuthc)
+col_annot <- data.frame(group=voom$targets$group,
+                    ecotype=voom$targets$carcinoma_ecotype)
+colour_list <- list(cluster = c("1" = "cadetblue1", "2" = "darkcyan"),
+                    group = c("BRCA1_2_loss" = "pink", 
+                                             "HRD_high" = "cornflowerblue", 
+                                             "HRD_low" = "purple"),
+                     ecotype= c("CE1"="darkorange", "CE2"="yellow", 
+                               "CE3"="darkolivegreen1", "CE4"="deeppink3", 
+                               "CE5"="coral4", "CE6"="darkslateblue", 
+                               "CE7"="red", "CE8"="chartreuse4", 
+                               "CE9"="darkgoldenrod4", "CE10"="#00BFC4" , 
+                               "NA"="grey"))
+pheatmap(z.mat, 
+         cluster_rows = TRUE,  # Hierarchical clustering for rows
+         cluster_cols = TRUE, # No clustering for columns
+         color = myRamp, # Color scheme
+         main = "Heatmap of Top DE Genes", # Heatmap title
+         annotation_row = gene_cluster,
+         annotation_col = col_annot,
+         annotation_colors = colour_list,
+         show_rownames = FALSE,  # Show row names
+         show_colnames = FALSE)  # Show column names
+
+
   
 ```
 
+
+```{r, pheatmap - subset of samples}
+
+# Select the top genes based on adj.P.Val
+  topGenesHRDlow <- results_HRDlow %>% 
+  top_n(300, wt= -adj.P.Val) %>% 
+  pull(ENSEMBL)
+
+  # colour palette
+myPalette <- c("royalblue3", "ivory", "orangered3")
+myRamp <- colorRamp2(c(-2, 0, 2), myPalette)
+
+library(pheatmap)
+gene_cluster <- data.frame(cluster = cuthc)
+col_annot <- data.frame(contrast_group=voom$targets$group,
+                    ecotype=voom$targets$carcinoma_ecotype,
+                    submitter_id=voom$targets$submitter_id) %>% 
+  filter(contrast_group != "HRD_high") %>% 
+  mutate(submitter_id = str_replace_all( submitter_id,"-", ".")) 
+
+plotDatlow <- data.frame(plotDat) %>% 
+    select(any_of(col_annot$submitter_id)) %>% 
+    as.matrix()
+#z-scale the data (results = number of SD the GE is from the mean for that gene 
+#across all samples)
+  z.mat <- t(scale(t(plotDatlow), center=TRUE, scale=TRUE))
+  
+  
+#cluster the genes with distance matrix (allows for separation )   
+  hc <- hclust(dist(z.mat)) 
+#tried plotting the heatmap without clustering first and saw clear separation 
+#into two groups so just pulling out those groups by clustering first and then 
+#adding the resulting groups as annotation  
+
+  cuthc <- cutree(hc, k=2) 
+#cut tree into 2 clusters, can specify height to cut tree or number of clusters
+ #1's and 2's indicate the cluster that the genes belong to
+  
+
+colour_list <- list(cluster = c("1" = "cadetblue1", "2" = "darkcyan"),
+                    contrast_group = c("BRCA1_2_loss" = "pink", 
+                              "HRD_high" = "cornflowerblue", 
+                              "HRD_low" = "purple"),
+                    ecotype= c("CE1"="darkorange", "CE2"="yellow", 
+                               "CE3"="darkolivegreen1", "CE4"="deeppink3", 
+                               "CE5"="coral4", "CE6"="darkslateblue", 
+                               "CE7"="red", "CE8"="chartreuse4", 
+                               "CE9"="darkgoldenrod4", "CE10"="#00BFC4" , 
+                               "NA"="grey"))
+ pheatmap(z.mat, 
+         cluster_rows = TRUE,  # Hierarchical clustering for rows
+         cluster_cols = TRUE, # No clustering for columns
+         color = myRamp, # Color scheme
+         main = "Heatmap of Top DE Genes", # Heatmap title
+         annotation_row = gene_cluster,
+         annotation_col = col_annot[,1:2],
+         annotation_colors = colour_list,
+         show_rownames = FALSE,  
+         show_colnames = FALSE, 
+         cutree_rows = 2, 
+         cutree_cols = 3,
+         annotation_legend = c(TRUE, TRUE),
+         annotation_names_col = FALSE,
+         annotation_names_row = FALSE)
+
+  
+```
 
 **Gene ontology analysis with Goana**
 
