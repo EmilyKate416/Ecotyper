@@ -12,8 +12,7 @@ library(AnnotationDbi) # install from CRAN
 library(clusterProfiler)
 library(msigdbr)
 library(pathview)
-library(ComplexHeatmap)
-library(circlize)#only require if I use alternatie heatmap method, otherwise need "ComplexHeatmap"
+library(pheatmap)
 library(org.Hs.eg.db) #install from CRAN
 library(limma) #install from CRAN
 library(edgeR)
@@ -528,7 +527,7 @@ annotation so filtered out from heatmap along with 27 others for the
 HRDlow comparison. All those missing annotation appear to be non-coding 
 or novel genes.
 
-```{r, eval=FALSE, heatmap}
+```{r, complexheatmap, eval=FALSE, heatmap}
 
 # Select the top genes based on adj.P.Val
   topGenesHRDlow <- results_HRDlow %>% 
@@ -579,121 +578,66 @@ hmlow
 ```
 
 
-```{r, pheatmap}
+```{r, pheatmap - HRDlow vs BRCA1/2loss}
 
 # Select the top genes based on adj.P.Val
   topGenesHRDlow <- results_HRDlow %>% 
   top_n(300, wt= -adj.P.Val) %>% 
   pull(ENSEMBL)
 
-#extract normalised data to plot from E List object from voom transformation
-  plotDat <- voom$E[topGenesHRDlow,] 
-
-#z-scale the data (results = number of SD the GE is from the mean for that gene 
-#across all samples)
-  z.mat <- t(scale(t(plotDat), center=TRUE, scale=TRUE))
-  
-  
-#cluster the genes with distance matrix (allows for separation )   
-  hc <- hclust(dist(z.mat)) 
-#tried plotting the heatmap without clustering first and saw clear separation 
-#into two groups so just pulling out those groups by clustering first and then 
-#adding the resulting groups as annotation  
-
-  cuthc <- cutree(hc, k=2) 
-#cut tree into 2 clusters, can specify height to cut tree or number of clusters
- #1's and 2's indicate the cluster that the genes belong to
-  
-  # colour palette
-myPalette <- c("royalblue3", "ivory", "orangered3")
-myRamp <- colorRamp2(c(-2, 0, 2), myPalette)
-
-library(pheatmap)
-gene_cluster <- data.frame(cluster = cuthc)
-col_annot <- data.frame(group=voom$targets$group,
-                    ecotype=voom$targets$carcinoma_ecotype)
-colour_list <- list(cluster = c("1" = "cadetblue1", "2" = "darkcyan"),
-                    group = c("BRCA1_2_loss" = "pink", 
-                                             "HRD_high" = "cornflowerblue", 
-                                             "HRD_low" = "purple"),
-                     ecotype= c("CE1"="darkorange", "CE2"="yellow", 
-                               "CE3"="darkolivegreen1", "CE4"="deeppink3", 
-                               "CE5"="coral4", "CE6"="darkslateblue", 
-                               "CE7"="red", "CE8"="chartreuse4", 
-                               "CE9"="darkgoldenrod4", "CE10"="#00BFC4" , 
-                               "NA"="grey"))
-pheatmap(z.mat, 
-         cluster_rows = TRUE,  # Hierarchical clustering for rows
-         cluster_cols = TRUE, # No clustering for columns
-         color = myRamp, # Color scheme
-         main = "Heatmap of Top DE Genes", # Heatmap title
-         annotation_row = gene_cluster,
-         annotation_col = col_annot,
-         annotation_colors = colour_list,
-         show_rownames = FALSE,  # Show row names
-         show_colnames = FALSE)  # Show column names
-
-
-  
-```
-
-
-```{r, pheatmap - subset of samples}
-
-# Select the top genes based on adj.P.Val
-  topGenesHRDlow <- results_HRDlow %>% 
-  top_n(300, wt= -adj.P.Val) %>% 
-  pull(ENSEMBL)
+plotDatlow <- voom$E[topGenesHRDlow,] 
 
   # colour palette
 myPalette <- c("royalblue3", "ivory", "orangered3")
 myRamp <- colorRamp2(c(-2, 0, 2), myPalette)
 
-library(pheatmap)
-gene_cluster <- data.frame(cluster = cuthc)
-col_annot <- data.frame(contrast_group=voom$targets$group,
+#column for annotation
+col_annot1 <- data.frame(contrast_group=voom$targets$group,
                     ecotype=voom$targets$carcinoma_ecotype,
                     submitter_id=voom$targets$submitter_id) %>% 
   filter(contrast_group != "HRD_high") %>% 
   mutate(submitter_id = str_replace_all( submitter_id,"-", ".")) 
 
-plotDatlow <- data.frame(plotDat) %>% 
-    select(any_of(col_annot$submitter_id)) %>% 
+#data to plot, filtering out the HRD high cases
+plotDatlow <- data.frame(plotDatlow) %>% 
+    select(any_of(col_annot1$submitter_id)) %>% 
     as.matrix()
 #z-scale the data (results = number of SD the GE is from the mean for that gene 
 #across all samples)
-  z.mat <- t(scale(t(plotDatlow), center=TRUE, scale=TRUE))
+  z.mat1 <- t(scale(t(plotDatlow), center=TRUE, scale=TRUE))
   
   
 #cluster the genes with distance matrix (allows for separation )   
-  hc <- hclust(dist(z.mat)) 
+  hc1 <- hclust(dist(z.mat1)) 
 #tried plotting the heatmap without clustering first and saw clear separation 
 #into two groups so just pulling out those groups by clustering first and then 
 #adding the resulting groups as annotation  
 
-  cuthc <- cutree(hc, k=2) 
+  cuthc1 <- cutree(hc1, k=2) 
 #cut tree into 2 clusters, can specify height to cut tree or number of clusters
  #1's and 2's indicate the cluster that the genes belong to
-  
 
-colour_list <- list(cluster = c("1" = "cadetblue1", "2" = "darkcyan"),
+  #row annotation  
+gene_cluster1 <- data.frame(cluster = cuthc1)
+
+#colours for annotation
+colour_list1 <- list(cluster = c("1" = "cadetblue1", "2" = "darkcyan"),
                     contrast_group = c("BRCA1_2_loss" = "pink", 
-                              "HRD_high" = "cornflowerblue", 
                               "HRD_low" = "purple"),
                     ecotype= c("CE1"="darkorange", "CE2"="yellow", 
                                "CE3"="darkolivegreen1", "CE4"="deeppink3", 
                                "CE5"="coral4", "CE6"="darkslateblue", 
-                               "CE7"="red", "CE8"="chartreuse4", 
-                               "CE9"="darkgoldenrod4", "CE10"="#00BFC4" , 
+                               "CE7"="red", "CE8"="darkviolet", 
+                               "CE9"="darkseagreen3", "CE10"="#00BFC4" , 
                                "NA"="grey"))
- pheatmap(z.mat, 
+ pheatmap(z.mat1, 
          cluster_rows = TRUE,  # Hierarchical clustering for rows
          cluster_cols = TRUE, # No clustering for columns
          color = myRamp, # Color scheme
-         main = "Heatmap of Top DE Genes", # Heatmap title
-         annotation_row = gene_cluster,
-         annotation_col = col_annot[,1:2],
-         annotation_colors = colour_list,
+         main = "Top 300 DE Genes HRD low vs BRCA1/2 loss", # Heatmap title
+         annotation_row = gene_cluster1,
+         annotation_col = col_annot1[,1:2],
+         annotation_colors = colour_list1,
          show_rownames = FALSE,  
          show_colnames = FALSE, 
          cutree_rows = 2, 
@@ -705,172 +649,112 @@ colour_list <- list(cluster = c("1" = "cadetblue1", "2" = "darkcyan"),
   
 ```
 
-**Gene ontology analysis with Goana**
+```{r, pheatmap - HRDhigh vs BRCA1/2loss}
 
-```{r}
-# subset DE genes to include those of great significance and large-ish logFC
-genesDE_HRDhigh <- results_HRDhigh %>%
-  mutate(bigLogFC = case_when(logFC < -1.0 | logFC > 1.0 ~ "keep",
-                              TRUE ~ "discard")) %>% 
-  dplyr::filter(bigLogFC == "keep") %>% 
-  dplyr::filter(adj.P.Val < 0.05) %>% 
-  dplyr::select(ENTREZID) 
-genesDE_HRDhigh <- as.vector(genesDE_HRDhigh)  
+# Select the top genes based on adj.P.Val
+  topGenesHRDhigh <- results_HRDhigh %>% 
+  top_n(300, wt= -adj.P.Val) %>% 
+  pull(ENSEMBL)
 
-## gene ontology
-gene_ont <- goana(genesDE_HRDhigh)
- topGO(gene_ont)
+plotDathigh <- voom$E[topGenesHRDhigh,]
+# colour palette
+myPalette <- c("royalblue3", "ivory", "orangered3")
+myRamp <- colorRamp2(c(-2, 0, 2), myPalette)
 
-gene_ont$adj.P.Val <- p.adjust(gene_ont$P.ENTREZID, method="BH")
+#column annotation
+col_annot2 <- data.frame(contrast_group=voom$targets$group,
+                    ecotype=voom$targets$carcinoma_ecotype,
+                    submitter_id=voom$targets$submitter_id) %>% 
+  filter(contrast_group != "HRD_low") %>% 
+  mutate(submitter_id = str_replace_all( submitter_id,"-", ".")) 
 
-gene_ont <- gene_ont %>% 
-  rownames_to_column(var = "goTerm")
+#data to plot, filtering out the HRDlow cases
+plotDathigh <- data.frame(plotDathigh) %>% 
+    select(any_of(col_annot2$submitter_id)) %>% 
+    as.matrix()
+#z-scale the data (results = number of SD the GE is from the mean for that gene 
+#across all samples)
+  z.mat2 <- t(scale(t(plotDathigh), center=TRUE, scale=TRUE))
+  
+  
+#cluster the genes with distance matrix (allows for separation )   
+  hc2 <- hclust(dist(z.mat2)) 
+#tried plotting the heatmap without clustering first and saw clear separation 
+#into two groups so just pulling out those groups by clustering first and then 
+#adding the resulting groups as annotation  
 
-#write_csv(gene_ont, "Output/Data/TCGA_DGE_geneOntology_20230922.csv")
+  cuthc2 <- cutree(hc2, k=2) 
+#cut tree into 2 clusters, can specify height to cut tree or number of clusters
+ #1's and 2's indicate the cluster that the genes belong to
+  
+gene_cluster2 <- data.frame(cluster = cuthc2)
+colour_list2 <- list(cluster = c("1" = "purple", "2" = "cyan"),
+                    contrast_group = c("BRCA1_2_loss" = "pink", 
+                              "HRD_high" = "cornflowerblue"),
+                    ecotype= c("CE1"="darkorange", "CE2"="yellow", 
+                               "CE3"="darkolivegreen1", "CE4"="deeppink3", 
+                               "CE5"="coral4", "CE6"="darkslateblue", 
+                               "CE7"="red", "CE8"="darkviolet", 
+                               "CE9"="darkseagreen3", "CE10"="#00BFC4" , 
+                               "NA"="grey"))
+ pheatmap(z.mat2, 
+         cluster_rows = TRUE,  # Hierarchical clustering for rows
+         cluster_cols = TRUE, # No clustering for columns
+         color = myRamp, # Color scheme
+         main = "Top 300 DE genes HRD high vs BRCA1/2 loss", # Heatmap title
+         annotation_row = gene_cluster2,
+         annotation_col = col_annot2[,1:2],
+         annotation_colors = colour_list2,
+         show_rownames = FALSE,  
+         show_colnames = FALSE, 
+         cutree_rows = 2, 
+         cutree_cols = 3,
+         annotation_legend = c(TRUE, TRUE),
+         annotation_names_col = FALSE,
+         annotation_names_row = FALSE)
 
+  
 ```
+##Check for biological functions that are over-represented in the gene clusters
 
-**Clusterprofiler (Yu et al. 2012)**
+Over-Representation Analysis (ORA): With list DE genes, identify the gene sets 
+in which the DE genes are over or under represented. The significance of each 
+pathway is measured by calculating the probability that the observed number of 
+DE genes in a given pathway were simply observed by chance.
 
-**Supports direct online access of the current KEGG database (KEGG: Kyoto Encyclopedia of Genes and Genomes), rather than relying on R annotation packages**
+```{r, enrichment analysis/ORA, HRD low vs BRCA1/2 loss}
+#take the pheatmap gene clusters that are DE between HRDlow vs BRCA1/2 loss 
+gene_cluster1 <- gene_cluster1 %>% rownames_to_column("ENSEMBL")
 
-```{r, KEGG enrichment analysis}
+#separate out 1st gene cluster
+gene_cluster1_ORA1 <- 
+  left_join(gene_cluster1, results_HRDlow) %>% 
+#  filter(cluster==1) %>% 
+  pull(ENTREZID) %>% 
+  as.numeric()
+
+#separate out second gene cluster
+gene_cluster1_ORA2 <- 
+  left_join(gene_cluster1, results_HRDlow) %>% 
+  filter(cluster==2) %>% 
+  pull(ENTREZID) %>% 
+  as.numeric()
+
+#KEGG enrichment analysis
 
 search_kegg_organism('human', by='common_name') #kegg code = hsa
 
-sigGenes_HRDhigh <- allDEgenes_BRCAloss_HRDhigh %>% 
-   pull(ENTREZID) %>% 
-  as.numeric()
-
-sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>% 
-   pull(ENTREZID) %>% 
-  as.numeric()
-
- keggResHigh <- enrichKEGG(gene= sigGenes_HRDhigh, organism = 'hsa')
- 
- keggReslow <- enrichKEGG(gene= sigGenes_HRDlow, organism = 'hsa')
+#1st gene cluster
+ keggReslow11 <- enrichKEGG(gene= gene_cluster1_ORA1, organism = 'hsa')
+#2nd gene cluster 
+  keggReslow12 <- enrichKEGG(gene= gene_cluster1_ORA2, organism = 'hsa')
  
  as_tibble(keggReslow)
- browseKEGG(keggResHigh, 'hsa04657') # to visualise one of the hits in browser
  
 ``` 
 
-Wont map IDs using correct EntrezIDs eg BRCA1 hsa672
-
-```{r}
-ewe <- enrichKEGG(gene= sigGenes_HRDlow, 
-                   organism = 'hsa',
-                   pvalueCutoff = 1,
-                   qvalueCutoff = 1)
-filter(as.data.frame(ewe), str_detect(geneID, "672"))
 ```
 
 
-```{r}
-logFC_HRDlow <- results_HRDlow%>% dplyr::select(ENTREZID, logFC) 
-rownames(logFC_HRDlow) <- logFC_HRDlow$ENTREZID
 
-
-logFC_HRDlow <- logFC_HRDlow %>% dplyr::select(logFC) 
-
-pathview(gene.data = logFC_HRDlow, 
-         pathway.id = "04657", 
-         species = "hsa", 
-         kegg.native = TRUE, # switch to false for PDF 
-         multi.state = TRUE,
-         out.suffix = "BRCAvsHRDlow_IL17",
-         keys.align = "y",
-         bins = 15,
-        low=list(gene="steelblue"),
-        high=list(gene="gold"),
-        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
-
-pathview(gene.data = logFC_HRDlow, 
-         pathway.id = "hsa04080", 
-         species = "hsa", 
-         kegg.native = TRUE,   # switch to false for PDF
-         multi.state = TRUE,
-         out.suffix = "BRCAvsHRDlow",
-         keys.align = "y",
-         #limit = 3, # specify range of colour scale 
-         bins = 15,
-        low=list(gene="steelblue"),
-        high=list(gene="gold"),
-        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
-
-pathview(gene.data = logFC_HRDlow, 
-         pathway.id = "hsa672", 
-         species = "hsa", 
-         kegg.native = TRUE,   # switch to false for PDF
-         multi.state = TRUE,
-         out.suffix = "BRCAvsHRDlowBRCA1",
-         keys.align = "y",
-         #limit = 3, # specify range of colour scale 
-         bins = 15,
-        low=list(gene="steelblue"),
-        high=list(gene="gold"),
-        limit = list(gene=3, cpd=1)) # specifies the limit values for gene.data and cpd.data when converting them to pseudo colors
-```
-
-**clusterProfiler can also perform over-representation analysis on GO terms with enrichGO**
-
-can't generate a plot for the BRCA1 vs HRDhigh
-
-```{r}
-
-sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>% 
-   pull(ENSEMBL) 
-universe <- results_HRDlow$ENSEMBL # create a background (universe) gene list = all genes in analysis 
-
-ego <- enrichGO(gene          = sigGenes_HRDlow, # defined earlier 
-                universe      = universe,
-                OrgDb         = org.Hs.eg.db,
-                keyType       = "ENSEMBL",
-                ont           = "ALL", # One of "BP" (biological processes), "MF", and "CC" subontologies, or "ALL" for all three.
-                pvalueCutoff  = 0.01,
-                readable      = TRUE)
-
-dotplotHRDlow <- dotplot(ego, font.size = 9)
-print(dotplotHRDlow)
-
-sigGenes_HRDhigh <- allDEgenes_BRCAloss_HRDhigh %>% 
-   pull(ENSEMBL) 
-universe <- results_HRDhigh$ENSEMBL # create a background (universe) gene list = all genes in analysis 
-
-ego <- enrichGO(gene          = sigGenes_HRDhigh, # defined earlier 
-                universe      = universe,
-                OrgDb         = org.Hs.eg.db,
-                keyType       = "ENSEMBL",
-                ont           = "ALL",
-                pvalueCutoff  = 0.01,
-                readable      = TRUE)
-
-dotplotHRDhigh <- dotplot(ego, font.size = 9) 
-print(dotplotHRDhigh)
-
-```
-**GSEA**
-```{r}
-
-# Load pathway details
-term2gene <- msigdbr(species = "Homo sapiens", category = "H") %>%
-  select(gs_name, entrez_gene)
-
-term2name<- msigdbr(species = "Homo sapiens", category = "H") %>%
-  select(gs_name, gs_description) %>%
-  distinct()
-
-# rank genes (by combining the sign of the fold change and the pvalue)
-rankedGenesHRDlow <- results_HRDlow %>%
-  mutate(rank = -log10(P.Value) * sign(logFC)) %>%
-  arrange(desc(rank)) %>%
-  pull(rank, ENTREZID)
-
-gseaRes.HRDlow <- GSEA(rankedGenesHRDlow,
-                TERM2GENE = term2gene,
-                TERM2NAME = term2name,
-                pvalueCutoff = 1.00, 
-                minGSSize = 15,
-                maxGSSize = 500)
-```
 
