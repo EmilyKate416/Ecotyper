@@ -528,58 +528,6 @@ annotation so filtered out from heatmap along with 27 others for the
 HRDlow comparison. All those missing annotation appear to be non-coding 
 or novel genes.
 
-```{r, complexheatmap, eval=FALSE, heatmap}
-
-library(colorRamp2)
-library(ComplexHeatmap)
-# Select the top genes based on adj.P.Val
-  topGenesHRDlow <- results_HRDlow %>% 
-  top_n(300, wt= -adj.P.Val) %>% 
-  pull(ENSEMBL)
-
-#extract normalised data to plot from E List object from voom transformation
-  plotDat <- voom$E[topGenesHRDlow,] 
-
-#z-scale the data (results = number of SD the GE is from the mean for that gene 
-#across all samples)
-  z.mat <- t(scale(t(plotDat), center=TRUE, scale=TRUE))
-
-  ha1 <- HeatmapAnnotation(df=voom$targets$group, 
-                           col = list(df = c("BRCA1_2_loss" = "pink", 
-                                             "HRD_high" = "cornflowerblue", 
-                                             "HRD_low" = "purple"))) 
-  
-#cluster the genes with distance matrix (allows for separation )   
-  hc <- hclust(dist(z.mat)) 
-#tried plotting the heatmap without clustering first and saw clear separation 
-#into two groups so just pulling out those groups by clustering first and then 
-#adding the resulting groups as annotation  
-
-  cuthc <- cutree(hc, k=2) 
-#cut tree into 2 clusters, can specify height to cut tree or number of clusters
- #1's and 2's indicate the cluster that the genes belong to
-
-gene <- enframe(cuthc, name="GeneID", value="cluster") %>% 
-  select(cluster)
-
-ha2 <- HeatmapAnnotation(df=gene, which="row", col = list(cluster = c("1" = "cadetblue1", "2" = "darkcyan"))) 
-# colour palette
-myPalette <- c("royalblue3", "ivory", "orangered3")
-myRamp <- colorRamp2(c(-2, 0, 2), myPalette)
-
-
-hmlow <- Heatmap(z.mat, name = "z-score",
-        col = myRamp,
-        show_row_names = FALSE, 
-        show_column_names = FALSE,
-        cluster_rows = hc,
-        top_annotation=ha1,
-        right_annotation=ha2)
-
-hmlow
-
-```
-
 
 ```{r, pheatmap - HRDlow vs BRCA1/2loss}
 
@@ -595,9 +543,13 @@ col_annot1 <- data.frame(Status=voom$targets$group,
                     Ecotype=voom$targets$carcinoma_ecotype,
                     submitter_id=voom$targets$submitter_id) %>% 
   filter(Status != "HRD_high") %>% 
-  mutate(submitter_id = str_replace_all( submitter_id,"-", ".")) 
+  mutate(submitter_id = str_replace_all( submitter_id,"-", "."))
+
+rownames(col_annot1) <- col_annot1$submitter_id 
+#leave column names in additional column for clustering later
 
 col_annot1 <- col_annot1 %>% mutate(across(Ecotype, ~replace_na(.x, "NA")))
+
 
 #data to plot, filtering out the HRD high cases
 plotDatlow <- data.frame(plotDatlow) %>% 
@@ -619,27 +571,28 @@ plotDatlow <- data.frame(plotDatlow) %>%
  #1's and 2's indicate the cluster that the genes belong to
 
   #row annotation  
-gene_cluster1 <- data.frame(Cluster = cuthc1)
+gene_clusterlow <- data.frame(Cluster = cuthc1)
 
 #colours for annotation
 colour_list1 <- list(Cluster = c("1" = "cadetblue1", "2" = "darkcyan"),
                     Status = c("BRCA1_2_loss" = "pink", 
                               "HRD_low" = "purple"),
+                             #  "HRD_high" = "cornflowerblue"),
                     Ecotype= c("CE1"="darkorange", "CE2"="yellow", 
                                "CE3"="darkolivegreen1", "CE4"="deeppink3", 
                                "CE5"="pink", "CE6"="darkslateblue", 
-                               "CE7"="pink", "CE8"="darkviolet", 
+                               "CE7"="red", "CE8"="darkviolet", 
                                "CE9"="darkseagreen3", "CE10"="#00BFC4" , 
                                "NA"="grey"))
-pheatmap(z.mat1, 
+
+maplow<- pheatmap(z.mat1, 
          cluster_rows = TRUE,  # Hierarchical clustering for rows
          cluster_cols = TRUE, # No clustering for columns
          color = colorRampPalette(c("blue", "white", "red"))(100), 
          main = "Top 500 DE Genes HRD low vs BRCA1/2 loss", # Heatmap title
-         annotation_row = gene_cluster1,
+         annotation_row = gene_clusterlow,
          annotation_col = col_annot1[,1:2],
          annotation_colors = colour_list1,
-         fontsize = 7,
          show_rownames = FALSE,  
          show_colnames = FALSE, 
          cutree_rows = 2, 
@@ -647,8 +600,15 @@ pheatmap(z.mat1,
          annotation_legend = TRUE,
          annotation_names_col = FALSE,
          annotation_names_row = FALSE)
-  
+
+IDclusterslow <- data.frame(
+                       cluster = cutree(maplow$tree_col, k=3)) %>% 
+  rownames_to_column() %>% 
+  mutate(rowname = str_replace_all(rowname,"\\.", "-")) %>% 
+  rename(submitter_id = rowname) %>% 
+ write_csv("./Output/Data/20240117_HRDlowvsBRCA12loss_IDclusters.csv")
 ```
+Plot all patients on one plot to see if you still get the small cluster (which you do)
 
 ```{r, pheatmap - HRDhigh vs BRCA1/2loss}
 
@@ -665,6 +625,8 @@ col_annot2 <- data.frame(Status=voom$targets$group,
                     submitter_id=voom$targets$submitter_id) %>% 
   filter(Status != "HRD_low") %>% 
   mutate(submitter_id = str_replace_all( submitter_id,"-", ".")) 
+
+rownames(col_annot2) <- col_annot2$submitter_id
 
 #data to plot, filtering out the HRDlow cases
 plotDathigh <- data.frame(plotDathigh) %>% 
@@ -685,9 +647,10 @@ plotDathigh <- data.frame(plotDathigh) %>%
 #cut tree into 2 clusters, can specify height to cut tree or number of clusters
  #1's and 2's indicate the cluster that the genes belong to
   
-gene_cluster2 <- data.frame(Cluster = cuthc2)
-colour_list2 <- list(Cluster = c("1" = "purple", "2" = "cyan"),
-                    Status = c("BRCA1_2_loss" = "pink", 
+gene_clusterhigh <- data.frame(Cluster = cuthc2)
+colour_list2 <- list(Cluster = c("1" = "cadetblue1", "2" = "darkcyan"),
+                    Status = c("BRCA1_2_loss" = "pink",
+                              # "HRD_low" = "purple",
                               "HRD_high" = "cornflowerblue"),
                     Ecotype= c("CE1"="darkorange", "CE2"="yellow", 
                                "CE3"="darkolivegreen1", "CE4"="deeppink3", 
@@ -695,12 +658,12 @@ colour_list2 <- list(Cluster = c("1" = "purple", "2" = "cyan"),
                                "CE7"="red", "CE8"="darkviolet", 
                                "CE9"="darkseagreen3", "CE10"="#00BFC4" , 
                                "NA"="grey"))
- pheatmap(z.mat2, 
+maphigh <- pheatmap(z.mat2, 
          cluster_rows = TRUE,  # Hierarchical clustering for rows
          cluster_cols = TRUE, # No clustering for columns
          color = colorRampPalette(c("blue", "white", "red"))(100), 
          main = "Top 500 DE genes HRD high vs BRCA1/2 loss", # Heatmap title
-         annotation_row = gene_cluster2,
+         annotation_row = gene_clusterhigh,
          annotation_col = col_annot2[,1:2],
          annotation_colors = colour_list2,
          show_rownames = FALSE,  
@@ -711,13 +674,19 @@ colour_list2 <- list(Cluster = c("1" = "purple", "2" = "cyan"),
          annotation_names_col = FALSE,
          annotation_names_row = FALSE,
          legend_breaks = c(-2, 0, 2))
+        # filename="HRDhigh_vs_BRCA1/2.pdf")
          #legend=FALSE)
 
-  
+IDclustershigh <- data.frame(
+                       cluster = cutree(maphigh$tree_col, k=3)) %>% 
+  rownames_to_column() %>% 
+  mutate(rowname = str_replace_all(rowname,"\\.", "-")) %>% 
+  rename(submitter_id = rowname) %>% 
+ write_csv("./Output/Data/20240117_HRDhighvsBRCA12loss_IDclusters.csv")
 ```
 ##Check for biological functions that are over-represented in the gene clusters
 
-Over-Representation Analysis (ORA): With list DE genes, identify the gene sets 
+Over-Representation Analysis (ORA): With listed DE genes, identify the gene sets 
 in which the DE genes are over or under represented. The significance of each 
 pathway is measured by calculating the probability that the observed number of 
 DE genes in a given pathway were simply observed by chance.
@@ -725,75 +694,6 @@ DE genes in a given pathway were simply observed by chance.
 
 ###Clusterprofiler (Yu et al. 2012) Supports direct online access of 
 current KEGG database (KEGG: Kyoto Encyclopedia of Genes and Genomes)
-
-```{r, enrichment analysis/ORA, HRD low vs BRCA1/2 loss}
-#take the pheatmap gene clusters that are DE between HRDlow vs BRCA1/2 loss 
-gene_clusterA <- gene_cluster1 %>% rownames_to_column("ENSEMBL")
-
-#separate out 1st gene cluster
-gene_cluster1_ORA1 <- 
-  left_join(gene_clusterA, results_HRDlow) %>% 
-#  filter(cluster==1) %>% 
-  pull(ENTREZID) %>% 
-  as.numeric()
-
-#separate out second gene cluster
-gene_cluster1_ORA2 <- 
-  left_join(gene_clusterA, results_HRDlow) %>% 
-  filter(Cluster==2) %>% 
-  pull(ENTREZID) %>% 
-  as.numeric()
-
-#KEGG enrichment analysis
-
-search_kegg_organism('human', by='common_name') #kegg code = hsa
-
-#1st gene cluster
- keggReslow11 <- enrichKEGG(gene= gene_cluster1_ORA1, organism = 'hsa')
-#2nd gene cluster 
-  keggReslow12 <- enrichKEGG(gene= gene_cluster1_ORA2, organism = 'hsa')
- 
- as_tibble(keggReslow11)
- as_tibble(keggReslow12)
- browseKEGG(keggReslow11, "hsa00190")
-``` 
-
-```{r, enrichment analysis/ORA, HRD high vs BRCA1/2 loss - comparing gene clusters from heatmap}
-#take the pheatmap gene clusters that are DE between HRDlow vs BRCA1/2 loss 
-gene_clusterB <- gene_cluster2 %>% rownames_to_column("ENSEMBL")
-
-#separate out 1st gene cluster
-gene_cluster2_ORA2 <- 
-  left_join(gene_clusterB, results_HRDhigh) %>% 
-#  filter(cluster==1) %>% 
-  pull(ENTREZID) %>% 
-  as.numeric()
-
-#separate out second gene cluster
-gene_cluster2_ORA2 <- 
-  left_join(gene_clusterB, results_HRDhigh) %>% 
-  filter(Cluster==2) %>% 
-  pull(ENTREZID) %>% 
-  as.numeric()
-
-#KEGG enrichment analysis
-
-search_kegg_organism('human', by='common_name') #kegg code = hsa
-
-#1st gene cluster
- keggReslow21 <- enrichKEGG(gene= gene_cluster1_ORA1, organism = 'hsa')
-#2nd gene cluster 
-  keggReslow22 <- enrichKEGG(gene= gene_cluster1_ORA2, organism = 'hsa')
- 
- as_tibble(keggReslow21)
- as_tibble(keggReslow22)
-``` 
-
-##If I increase the gene number from top 300 to top 500 in the heatmap then I get results for the ORA for each comparison, top hit = OXPHOS pathway
-
-Studies in breast and ovarian cancer HRD models depict a metabolic shift that includes enhanced expression of the oxidative phosphorylation (OXPHOS) pathway and its key components and a decline in the glycolytic Warburg phenotype. Hence, HRD cells are more sensitive to metformin and NAD+ concentration changes.
-
-Paper to read: https://translational-medicine.biomedcentral.com/articles/10.1186/s12967-023-04349-3
 
 ##KEGG on DE genes with no clustering: 
 
@@ -809,7 +709,7 @@ sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>%
    pull(ENTREZID) %>% 
   as.numeric()
 
- keggResHigh <- enrichKEGG(gene= sigGenes_HRDhigh, organism = 'hsa')
+ keggReshigh <- enrichKEGG(gene= sigGenes_HRDhigh, organism = 'hsa')
  
  keggReslow <- enrichKEGG(gene= sigGenes_HRDlow, organism = 'hsa')
  
@@ -817,9 +717,127 @@ sigGenes_HRDlow <- allDEgenes_BRCAloss_HRDlow %>%
  browseKEGG(keggReslow, 'hsa04657') # to visualise one of the hits in browser
  
 ``` 
+When we take the list of sig DE genes for each comparison and perform ORA:
+No pathways for HRD high vs BRCA1/2 loss
+3 pathways for HRD low vs BRCA1/2 loss including IL17
+
 ###https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9827088/ IL-17 (from T-helpers?) 
 upregulates MTA1 mRNA and protein expression to promote ovarian cancer 
 migration and invasion
 
+Try an increase the number of genes we can look at by taking the results from 
+the heatmaps where I took the top 500 DE genes for each comparison and clustered. 
+2 gene clusters, perform ORA on each cluster:
 
+
+```{r, enrichment analysis/ORA, HRD low vs BRCA1/2 loss}
+#take the pheatmap gene clusters that are DE between HRDlow vs BRCA1/2 loss 
+gene_clusterlow <- gene_clusterlow %>% rownames_to_column("ENSEMBL")
+
+#separate out 1st gene cluster
+gene_clusterlow_ORA1 <- 
+  left_join(gene_clusterlow, results_HRDlow) %>% 
+#  filter(cluster==1) %>% 
+  pull(ENTREZID) %>% 
+  as.numeric()
+
+#separate out second gene cluster
+gene_clusterlow_ORA2 <- 
+  left_join(gene_clusterlow, results_HRDlow) %>% 
+  filter(Cluster==2) %>% 
+  pull(ENTREZID) %>% 
+  as.numeric()
+
+#KEGG enrichment analysis
+
+search_kegg_organism('human', by='common_name') #kegg code = hsa
+
+#1st gene cluster
+ keggReslow1 <- enrichKEGG(gene= gene_clusterlow_ORA1, organism = 'hsa')
+#2nd gene cluster 
+  keggReslow2 <- enrichKEGG(gene= gene_clusterlow_ORA2, organism = 'hsa')
+ 
+ as_tibble(keggReslow1)
+ as_tibble(keggReslow2)
+ browseKEGG(keggReslow1, "hsa00190")
+``` 
+For HRD low vs BRCA1/2 loss:
+Gene cluster 1 gives a list of 5 pathways
+Gene cluster 2 gives a list of 7 pathways
+
+Oxidative phosphorylation = top hit for each i.e Metabolic differences between 
+BRCA1/2 loss vs HRD low  Studies in breast and ovarian cancer HRD models depict 
+a metabolic shift that includes enhanced expression of the OXPHOS pathway and 
+its key components and a decline in the glycolytic Warburg phenotype. Hence, 
+HRD cells are more sensitive to metformin and NAD+ concentration changes.
+
+Paper to read: https://translational-medicine.biomedcentral.com/articles/10.1186/s12967-023-04349-3
+
+```{r, enrichment analysis/ORA, HRD high vs BRCA1/2 loss - comparing gene clusters from heatmap}
+#take the pheatmap gene clusters that are DE between HRDlow vs BRCA1/2 loss 
+gene_clusterhigh <- gene_clusterhigh %>% rownames_to_column("ENSEMBL")
+
+#separate out 1st gene cluster
+gene_clusterhigh_ORA1 <- 
+  left_join(gene_clusterhigh, results_HRDhigh) %>% 
+#  filter(cluster==1) %>% 
+  pull(ENTREZID) %>% 
+  as.numeric()
+
+#separate out second gene cluster
+gene_clusterhigh_ORA2 <- 
+  left_join(gene_clusterhigh, results_HRDhigh) %>% 
+  filter(Cluster==2) %>% 
+  pull(ENTREZID) %>% 
+  as.numeric()
+
+#KEGG enrichment analysis
+
+search_kegg_organism('human', by='common_name') #kegg code = hsa
+
+#1st gene cluster
+ keggReshigh1 <- enrichKEGG(gene= gene_clusterhigh_ORA1, organism = 'hsa')
+#2nd gene cluster 
+  keggReshigh2 <- enrichKEGG(gene= gene_clusterhigh_ORA2, organism = 'hsa')
+ 
+ as_tibble(keggReshigh1)
+ as_tibble(keggReshigh2)
+``` 
+
+
+No pathways returned for HRD high vs BRCA12 loss
+
+I took the patient clusters from each heatmap and fed them into cBioportal to look at survival and clinical differences. No significant differences in survival outcomes. Aneuploidy states differed significantly between the clusters for both sets (the HRDhigh-BRCA12loss and HRDlow-BRCA12loss). Plots and stats in cBioportal folder in Outputs.
+```{r, compare ecotypers in patient clusters from heatmaps, HRDlow vs BRCA1/2 loss}
+
+IDclusterslow <- IDclusterslow %>% left_join(meta_rawCounts_matched)
+
+ecotypes <- IDclusterslow %>%
+  tabyl(cluster,  carcinoma_ecotype) %>% 
+as.data.frame() %>% 
+  select(cluster, CE1, CE2, CE3, CE4, CE5, CE6, CE7, CE8, CE9, CE10,-"NA_")
+
+# Calculate proportions within each cluster for each CE
+ecotypes_proportions <- ecotypes %>%
+  mutate_at(vars(starts_with("CE")), function(x) x / rowSums(select(., starts_with("CE"))))
+
+
+ ecotypes_long <- tidyr::gather(ecotypes_proportions, key = "CE", value = "proportion", -cluster)
+ ecotypes_long$CE <- factor(ecotypes_long$CE, levels = c("CE1", "CE2","CE3","CE4","CE5","CE6","CE7","CE8","CE9","CE10"))
+ 
+# Create a stacked bar chart
+ggplot(ecotypes_long, aes(x = cluster, y = proportion, fill = CE)) +
+     geom_bar(stat = "identity", position = "stack") +
+     labs(title = "Counts of ecotypes per patient cluster",
+          x = "Cluster",
+          y = "Count") +
+     scale_fill_brewer(palette = "Paired") +
+     theme_minimal()
+```
+
+To do: 
+Aneuploidy differences point towards CIN, assign the dominant signature from the pancancer paper as labels and look for differences between the clusters.
+Compare the ecotype proportions between the clusters (the smallest clusters seem to be enriched for CE8/7)
+Could look at the type of BRCA1/2 alteration
+Use tools to look at immune infiltration in gene expression data (although this is essentially what ecotyper does so jusst look into this more)
 

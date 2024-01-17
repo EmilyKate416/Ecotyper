@@ -163,7 +163,56 @@ rawCounts_final <- rawCounts %>%
 #where the column name matches an entry in the submitter_id column in 
 #meta_rawCounts_matched
 
-# We really don't need the "missing_contrast" object, you do use it again
-# later, but we can easily use a different object to get the same results
 ```
-may need to refer back to previous rmd to get an object equivalent to missing_contrast
+
+```{r}
+pancan_contrasts_matched <- pancan_contrasts %>% 
+  filter(submitter_id %in% meta_rawCounts_matched$submitter_id)
+```
+
+```{r, ecotype bar chart stacked}
+#make a stacked bar chart (omitting NAs)
+ecotypes <- meta_rawCounts_matched %>%
+  tabyl( contrast_group,  carcinoma_ecotype) %>% 
+as.data.frame() %>% 
+  select(contrast_group, CE1, CE2, CE3, CE4, CE5, CE6, CE7, CE8, CE9, CE10,-"NA_")
+
+ ecotypes_long <- tidyr::gather(ecotypes, key = "CE", value = "Count", -contrast_group)
+ ecotypes_long$CE <- factor(ecotypes_long$CE, levels = c("CE1", "CE2","CE3","CE4","CE5","CE6","CE7","CE8","CE9","CE10"))
+ 
+# Create a stacked bar chart
+ggplot(ecotypes_long, aes(x = contrast_group, y = Count, fill = CE)) +
+     geom_bar(stat = "identity", position = "stack") +
+     labs(title = "Counts of ecotypes per contrast group",
+          x = "Contrast Group",
+          y = "Count") +
+     scale_fill_brewer(palette = "Paired") +
+     theme_minimal()
+  
+```
+```{r, ecotype heatmap}
+  
+ecotypes <- meta_rawCounts_matched %>%
+  tabyl( carcinoma_ecotype, contrast_group) %>% 
+  as.data.frame() %>% 
+  na.omit() %>% 
+   arrange(match(carcinoma_ecotype, c("CE1", "CE2", "CE3", "CE4", 
+                                      "CE5", "CE6", "CE7", "CE8", 
+                                      "CE9", "CE10")))
+
+rownames(ecotypes) <- ecotypes$carcinoma_ecotype
+ecotypes$carcinoma_ecotype <- NULL
+
+
+pheatmap(
+  as.matrix(ecotypes),
+  color = colorRampPalette(c("white", "red"))(20),
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  fontsize_row = 8,
+  fontsize_col = 8,
+  main = "Heatmap of the Data")
+
+
+```
+
